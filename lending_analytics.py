@@ -62,6 +62,18 @@ def _recommended_action(row: pd.Series) -> str:
     return "Continue relationship nurturing"
 
 
+def classify_next_best_action(recommended_action: str) -> str:
+    """Translate a specific recommendation into a business action category."""
+    action = str(recommended_action or "").strip().lower()
+    if "collection" in action or "retention" in action:
+        return "Attention"
+    if "credit review" in action or "decision" in action:
+        return "Decision"
+    if action.startswith("offer "):
+        return "Offer"
+    return "Information"
+
+
 def estimate_tokens(text: str) -> int:
     return max(1, math.ceil(len(text.strip()) / 4)) if text.strip() else 0
 

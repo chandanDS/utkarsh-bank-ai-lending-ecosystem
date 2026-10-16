@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from lending_analytics import answer_bi
+from lending_analytics import answer_bi, classify_next_best_action
 
 
 class ConversationalBiTests(unittest.TestCase):
@@ -58,6 +58,13 @@ class ConversationalBiTests(unittest.TestCase):
         self.assertEqual(result.iloc[0]["product"], "Personal Loan")
         self.assertEqual(int(result.iloc[0]["high_propensity_leads"]), 1)
         self.assertIn("Personal Loan", answer)
+
+    def test_next_best_action_business_categories(self):
+        self.assertEqual(classify_next_best_action("Specialist collections review"), "Attention")
+        self.assertEqual(classify_next_best_action("Retention outreach"), "Attention")
+        self.assertEqual(classify_next_best_action("Manual credit review"), "Decision")
+        self.assertEqual(classify_next_best_action("Offer Home Loan"), "Offer")
+        self.assertEqual(classify_next_best_action("Continue relationship nurturing"), "Information")
 
     def test_generic_high_risk_still_returns_customer_detail(self):
         answer, result, route = answer_bi("show high default risk customers", self.df)

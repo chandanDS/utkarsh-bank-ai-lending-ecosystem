@@ -8,7 +8,7 @@ from urllib.error import HTTPError, URLError
 from engine import authenticate_user, init_db, rows, scored_customers, score, event, upsert_application, retrieve_policy, POLICY_VERSION
 from airtel_voice import TEST_NUMBER, call_window_open, configuration_status, place_test_call
 from campaign_links import TEST_MESSAGE, VOICE_SCRIPT, launch_links
-from lending_analytics import AI_COLUMNS, CAMPAIGN_AUDIENCES, campaign_audience, enrich_portfolio, executive_impact_report, lead_conversion_analytics
+from lending_analytics import AI_COLUMNS, CAMPAIGN_AUDIENCES, campaign_audience, classify_next_best_action, enrich_portfolio, executive_impact_report, lead_conversion_analytics
 from hybrid_bi import DEFAULT_INSIGHT_MODEL, DEFAULT_MODEL, answer_hybrid_bi, zero_usage
 from twilio_voice import configuration_status as twilio_configuration_status, place_test_call as place_twilio_test_call, trial_mode as twilio_trial_mode
 
@@ -456,7 +456,7 @@ elif page == "Executive Business Impact report":
 elif page == "AI/ML intelligence":
     st.subheader("AI/ML intelligence", icon=":material/model_training:")
     st.caption(f"Identify customer opportunities, risks and next-best actions within the authorized scope: {active_scope} · {len(df):,} records.")
-    tabs = st.tabs(["Propensity", "Default & early warning", "Churn", "Cross-sell", "Credit decisioning", "Personalization", "Collections", "Next best action"])
+    tabs = st.tabs(["Propensity", "Default & early warning", "Churn", "Cross-sell", "Credit decisioning", "Personalization", "Collections", "Next Best Offer/Action"])
     with tabs[0]:
         view = df.sort_values("propensity", ascending=False)
         st.metric("High-propensity customers", f"{int((view.propensity >= .75).sum()):,}")
@@ -513,27 +513,37 @@ elif page == "AI/ML intelligence":
         st.metric("Active collections worklist", f"{len(view):,}")
         st.dataframe(crore_display(view[AI_COLUMNS + ["dpd", "collection_amount_due", "collection_amount_received", "collection_priority"]].head(500)), hide_index=True, width="stretch")
     with tabs[7]:
-        st.caption("Prioritized next action based on delinquency, credit risk, churn and opportunity signals.")
-        action_rank = {
-            "Specialist collections review": 0,
-            "Manual credit review": 1,
-            "Retention outreach": 2,
-        }
-        view = df.assign(_action_rank=df["recommended_action"].map(action_rank).fillna(3)).sort_values(
+        st.caption("Recommended product offer and prioritized operational action derived from opportunity, risk, churn and delinquency signals.")
+        action_rank = {"Attention": 0, "Decision": 1, "Offer": 2, "Information": 3}
+        view = df.assign(
+            next_best_offer=df["recommended_product"],
+            next_best_action_type=df["recommended_action"].map(classify_next_best_action),
+        )
+        view = view.assign(_action_rank=view["next_best_action_type"].map(action_rank).fillna(4)).sort_values(
             ["_action_rank", "collection_priority", "risk", "propensity"],
             ascending=[True, False, False, False],
         )
-        immediate_actions = int((view.recommended_action != "Continue relationship nurturing").sum())
         with st.container(horizontal=True):
-            st.metric("Immediate actions", f"{immediate_actions:,}", border=True)
-            st.metric("Action types", f"{view.recommended_action.nunique():,}", border=True)
-            st.metric("Customers prioritized", f"{len(view):,}", border=True)
+            st.metric("Attention required", f"{int((view.next_best_action_type == 'Attention').sum()):,}", border=True)
+            st.metric("Decisions required", f"{int((view.next_best_action_type == 'Decision').sum()):,}", border=True)
+            st.metric("Offer opportunities", f"{int((view.next_best_action_type == 'Offer').sum()):,}", border=True)
+            st.metric("Information / nurture", f"{int((view.next_best_action_type == 'Information').sum()):,}", border=True)
         action_columns = [
-            "customer_id", "name", "branch_code", "city", "recommended_action",
-            "recommended_product", "risk", "propensity", "churn_probability",
-            "collection_priority", "preferred_channel", "contact_hour", "reasons",
+            "customer_id", "name", "branch_code", "city", "next_best_offer",
+            "next_best_action_type", "recommended_action", "amount", "rate", "risk",
+            "propensity", "churn_probability", "collection_priority", "preferred_channel",
+            "contact_hour", "reasons",
         ]
-        st.dataframe(view[action_columns].head(500), hide_index=True, width="stretch")
+        st.dataframe(
+            crore_display(view[action_columns].head(500)),
+            hide_index=True,
+            width="stretch",
+            column_config={
+                "next_best_offer": st.column_config.TextColumn("Next best offer", pinned=True),
+                "next_best_action_type": st.column_config.TextColumn("Action type", pinned=True),
+                "recommended_action": st.column_config.TextColumn("Recommended action"),
+            },
+        )
     st.download_button("Download complete prediction output", df[AI_COLUMNS].to_csv(index=False), "lending_prediction_output.csv", "text/csv", icon=":material/download:")
 
 elif page == "Conversational BI":
