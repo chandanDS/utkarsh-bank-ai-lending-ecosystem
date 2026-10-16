@@ -474,16 +474,66 @@ elif page == "AI/ML intelligence":
         st.metric("Priority cross-sell customers", f"{int((view.cross_sell_score >= .70).sum()):,}")
         st.dataframe(view[AI_COLUMNS].head(500), hide_index=True, width="stretch")
     with tabs[4]:
-        st.dataframe(crore_display(df.sort_values(["segment", "risk"])[AI_COLUMNS + ["amount", "rate"]].head(500)), hide_index=True, width="stretch")
+        st.caption("Credit eligibility and policy outcome with the principal underwriting signals and reason codes.")
+        decision_rank = {
+            "pre-approved": 0,
+            "pre-qualified": 1,
+            "underwriting": 2,
+            "manual-review": 3,
+            "decline": 4,
+        }
+        view = df.assign(_decision_rank=df["segment"].map(decision_rank).fillna(5)).sort_values(
+            ["_decision_rank", "risk", "bureau"], ascending=[True, True, False]
+        )
+        with st.container(horizontal=True):
+            st.metric("Pre-approved / pre-qualified", f"{int(view.segment.isin(['pre-approved', 'pre-qualified']).sum()):,}", border=True)
+            st.metric("Manual review / underwriting", f"{int(view.segment.isin(['manual-review', 'underwriting']).sum()):,}", border=True)
+            st.metric("Declined", f"{int((view.segment == 'decline').sum()):,}", border=True)
+        decision_columns = [
+            "customer_id", "name", "branch_code", "city", "product", "bureau", "risk",
+            "utilization", "delinquencies", "aa_cashflow", "kyc", "segment", "amount",
+            "rate", "reasons",
+        ]
+        st.dataframe(crore_display(view[decision_columns].head(500)), hide_index=True, width="stretch")
     with tabs[5]:
-        cols = AI_COLUMNS + ["amount", "rate", "preferred_channel", "contact_hour"]
-        st.dataframe(crore_display(df.sort_values("propensity", ascending=False)[cols].head(500)), hide_index=True, width="stretch")
+        st.caption("Personalized product recommendation, offer context and preferred engagement channel for each customer.")
+        view = df.sort_values(["propensity", "cross_sell_score", "risk"], ascending=[False, False, True])
+        with st.container(horizontal=True):
+            st.metric("High-personalization opportunities", f"{int((view.propensity >= .75).sum()):,}", border=True)
+            st.metric("Recommended products", f"{view.recommended_product.nunique():,}", border=True)
+            st.metric("Preferred channels", f"{view.preferred_channel.nunique():,}", border=True)
+        personalization_columns = [
+            "customer_id", "name", "branch_code", "city", "customer_segment", "product",
+            "recommended_product", "propensity", "cross_sell_score", "preferred_channel",
+            "contact_hour", "amount", "rate",
+        ]
+        st.dataframe(crore_display(view[personalization_columns].head(500)), hide_index=True, width="stretch")
     with tabs[6]:
         view = df[df.dpd > 0].sort_values("collection_priority", ascending=False)
         st.metric("Active collections worklist", f"{len(view):,}")
         st.dataframe(crore_display(view[AI_COLUMNS + ["dpd", "collection_amount_due", "collection_amount_received", "collection_priority"]].head(500)), hide_index=True, width="stretch")
     with tabs[7]:
-        st.dataframe(df.sort_values(["propensity", "risk"], ascending=[False, True])[AI_COLUMNS].head(500), hide_index=True, width="stretch")
+        st.caption("Prioritized next action based on delinquency, credit risk, churn and opportunity signals.")
+        action_rank = {
+            "Specialist collections review": 0,
+            "Manual credit review": 1,
+            "Retention outreach": 2,
+        }
+        view = df.assign(_action_rank=df["recommended_action"].map(action_rank).fillna(3)).sort_values(
+            ["_action_rank", "collection_priority", "risk", "propensity"],
+            ascending=[True, False, False, False],
+        )
+        immediate_actions = int((view.recommended_action != "Continue relationship nurturing").sum())
+        with st.container(horizontal=True):
+            st.metric("Immediate actions", f"{immediate_actions:,}", border=True)
+            st.metric("Action types", f"{view.recommended_action.nunique():,}", border=True)
+            st.metric("Customers prioritized", f"{len(view):,}", border=True)
+        action_columns = [
+            "customer_id", "name", "branch_code", "city", "recommended_action",
+            "recommended_product", "risk", "propensity", "churn_probability",
+            "collection_priority", "preferred_channel", "contact_hour", "reasons",
+        ]
+        st.dataframe(view[action_columns].head(500), hide_index=True, width="stretch")
     st.download_button("Download complete prediction output", df[AI_COLUMNS].to_csv(index=False), "lending_prediction_output.csv", "text/csv", icon=":material/download:")
 
 elif page == "Conversational BI":
