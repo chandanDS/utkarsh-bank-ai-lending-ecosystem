@@ -178,6 +178,38 @@ def _branch_ranking(question: str, scoped: pd.DataFrame) -> tuple[str, pd.DataFr
     return answer, selected, route
 
 
+def _portfolio_propensity_ranking(
+    question: str, scoped: pd.DataFrame
+) -> tuple[str, pd.DataFrame, str] | None:
+    """Rank lending product portfolios by their count of high-propensity leads."""
+    asks_portfolio = "portfolio" in question or "product" in question
+    asks_propensity = "propensity" in question or "lead" in question
+    descending = any(term in question for term in ("highest", "most", "maximum", "max", "top"))
+    ascending = any(term in question for term in ("lowest", "least", "minimum", "min", "bottom"))
+    if not (asks_portfolio and asks_propensity and (descending or ascending)) or scoped.empty:
+        return None
+
+    result = scoped.groupby("product", as_index=False).agg(
+        high_propensity_leads=("propensity", lambda values: int((values >= 0.75).sum())),
+        total_customers=("customer_id", "count"),
+        average_propensity=("propensity", "mean"),
+    )
+    result["average_propensity_pct"] = (result.pop("average_propensity") * 100).round(2)
+    result = result.sort_values(
+        ["high_propensity_leads", "average_propensity_pct", "product"],
+        ascending=[ascending, ascending, True],
+        kind="stable",
+    )
+    selected = result.head(1).copy()
+    row = selected.iloc[0]
+    qualifier = "lowest" if ascending else "highest"
+    answer = (
+        f"{row['product']} has the {qualifier} number of high-propensity leads: "
+        f"{int(row['high_propensity_leads']):,}."
+    )
+    return answer, selected, "portfolio_propensity"
+
+
 def answer_bi(question: str, df: pd.DataFrame) -> tuple[str, pd.DataFrame, str]:
     q = question.lower().strip()
     if not q:
@@ -194,6 +226,10 @@ def answer_bi(question: str, df: pd.DataFrame) -> tuple[str, pd.DataFrame, str]:
     branch_ranking = _branch_ranking(q, scoped)
     if branch_ranking is not None:
         return branch_ranking
+
+    portfolio_propensity_ranking = _portfolio_propensity_ranking(q, scoped)
+    if portfolio_propensity_ranking is not None:
+        return portfolio_propensity_ranking
 
     dpd_match = re.search(r"dpd\s*(?:greater than|above|>)\s*(\d+)", q)
     if dpd_match:

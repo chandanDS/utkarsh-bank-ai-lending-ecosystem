@@ -35,6 +35,30 @@ class ConversationalBiTests(unittest.TestCase):
     def test_lowest_collection_efficiency(self):
         self.assert_branch_answer("branch with lowest collection efficiency", "BR001", "branch_collection_efficiency")
 
+    def test_lowest_high_propensity_leads_by_portfolio(self):
+        portfolio = self.df.copy()
+        portfolio.loc[portfolio["customer_id"] == "2", "propensity"] = 0.70
+        answer, result, route = answer_bi(
+            "which portfolio has the lowest high propensity leads", portfolio
+        )
+        self.assertEqual(route, "portfolio_propensity")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result.iloc[0]["product"], "Home Loan")
+        self.assertEqual(int(result.iloc[0]["high_propensity_leads"]), 0)
+        self.assertIn("Home Loan", answer)
+        self.assertIn("lowest number of high-propensity leads: 0", answer)
+
+    def test_highest_high_propensity_leads_by_product(self):
+        portfolio = self.df.copy()
+        portfolio.loc[portfolio["customer_id"] == "2", "propensity"] = 0.70
+        answer, result, route = answer_bi(
+            "which product has the highest high propensity leads", portfolio
+        )
+        self.assertEqual(route, "portfolio_propensity")
+        self.assertEqual(result.iloc[0]["product"], "Personal Loan")
+        self.assertEqual(int(result.iloc[0]["high_propensity_leads"]), 1)
+        self.assertIn("Personal Loan", answer)
+
     def test_generic_high_risk_still_returns_customer_detail(self):
         answer, result, route = answer_bi("show high default risk customers", self.df)
         self.assertEqual(len(result), 2)
