@@ -23,6 +23,7 @@ st.set_page_config(
 )
 init_db()
 OFFICIAL_LOGO_URL = "https://www.utkarsh.bank.in/images/logo.svg"
+TOP_HEADER_LOGO = PROJECT_ROOT / "assets" / "utkarsh_bank_logo.svg"
 OFFICIAL_BACKGROUND_URL = "https://www.utkarsh.bank.in/images/Loans.jpg"
 st.html(f"""
 <style>
@@ -72,8 +73,15 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
     padding: 0.75rem 1.15rem;
     margin-bottom: 0.85rem;
 }}
+.st-key-brand_header [data-testid="stImage"] {{
+    background: #FFFFFF;
+    border: 1px solid rgba(75, 46, 131, 0.22);
+    border-radius: 12px;
+    box-shadow: 0 5px 16px rgba(47, 33, 84, 0.14);
+    padding: 0.85rem 1rem;
+}}
 .st-key-brand_header img {{
-    filter: drop-shadow(0 3px 7px rgba(47, 33, 84, 0.18));
+    filter: drop-shadow(0 2px 5px rgba(47, 33, 84, 0.16));
 }}
 .journey-grid {{
     display: grid;
@@ -173,9 +181,9 @@ if current_user["role"] == "BRANCH" and not current_user.get("branch_code"):
     st.stop()
 
 with st.container(key="brand_header"):
-    brand_logo, brand_title = st.columns([1, 4], vertical_alignment="center")
+    brand_logo, brand_title = st.columns([1.35, 4], vertical_alignment="center")
     with brand_logo:
-        st.image(OFFICIAL_LOGO_URL, width=245)
+        st.image(TOP_HEADER_LOGO, width="stretch")
     with brand_title:
         st.title("Utkarsh Bank AI-Powered Lending Ecosystem")
         st.caption(
