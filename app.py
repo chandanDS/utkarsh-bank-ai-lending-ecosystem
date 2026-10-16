@@ -9,7 +9,8 @@ from engine import authenticate_user, init_db, rows, scored_customers, score, ev
 from airtel_voice import TEST_NUMBER, call_window_open, configuration_status, place_test_call
 from campaign_links import TEST_MESSAGE, VOICE_SCRIPT, launch_links
 from lending_analytics import AI_COLUMNS, CAMPAIGN_AUDIENCES, campaign_audience, classify_next_best_action, enrich_portfolio, executive_impact_report, lead_conversion_analytics
-from hybrid_bi import DEFAULT_INSIGHT_MODEL, DEFAULT_MODEL, answer_hybrid_bi, zero_usage
+from hybrid_bi import DEFAULT_INSIGHT_MODEL, DEFAULT_MODEL, answer_hybrid_bi, should_display_result_table, zero_usage
+from historical_analytics import build_historical_portfolio, observe_metrics
 from twilio_voice import authorized_test_numbers, configuration_status as twilio_configuration_status, place_test_call as place_twilio_test_call, trial_mode as twilio_trial_mode
 from twilio_messaging import configuration_status as twilio_message_configuration_status, send_test_message
 
@@ -24,7 +25,6 @@ st.set_page_config(
 )
 init_db()
 OFFICIAL_LOGO_URL = "https://www.utkarsh.bank.in/images/logo.svg"
-TOP_HEADER_LOGO = PROJECT_ROOT / "assets" / "utkarsh_bank_logo.svg"
 OFFICIAL_BACKGROUND_URL = "https://www.utkarsh.bank.in/images/Loans.jpg"
 st.html(f"""
 <style>
@@ -36,20 +36,33 @@ st.html(f"""
     background-position: center;
     background-attachment: fixed;
 }}
+section[data-testid="stSidebar"] {{
+    width: 22rem !important;
+    min-width: 22rem !important;
+}}
+section[data-testid="stSidebar"] > div:first-child {{
+    width: 22rem !important;
+}}
+[data-testid="stMainBlockContainer"] {{
+    padding-top: 1.75rem;
+}}
 section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {{
-    overflow-y: hidden;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+    padding-top: 0.35rem;
+    padding-bottom: 0.30rem;
 }}
 section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {{
-    gap: 0.45rem;
+    gap: 0.22rem;
 }}
 section[data-testid="stSidebar"] div[role="radiogroup"] {{
-    gap: 0.42rem;
+    gap: 0.28rem;
 }}
 section[data-testid="stSidebar"] div[role="radiogroup"] label {{
     background: rgba(255, 255, 255, 0.09);
     border: 1px solid rgba(255, 255, 255, 0.20);
     border-radius: 9px;
-    padding: 0.52rem 0.60rem;
+    padding: 0.40rem 0.52rem;
     transition: background 120ms ease, border-color 120ms ease;
 }}
 section[data-testid="stSidebar"] div[role="radiogroup"] label:hover {{
@@ -65,27 +78,52 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
     color: #2F2154 !important;
     font-weight: 750;
 }}
+section[data-testid="stSidebar"] [data-testid="stTable"] table {{
+    font-size: 0.84rem;
+}}
+section[data-testid="stSidebar"] [data-testid="stTable"] th,
+section[data-testid="stSidebar"] [data-testid="stTable"] td {{
+    padding: 0.20rem 0.38rem;
+    line-height: 1.14;
+}}
+.st-key-groq_settings_section {{
+    margin-top: 0.35rem;
+    margin-bottom: 0.45rem;
+}}
+.st-key-token_usage_panel {{
+    margin-top: 0.35rem;
+    padding-top: 0.40rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.22);
+}}
+[data-testid="stDataFrame"] [role="columnheader"] {{
+    justify-content: center;
+    text-align: center;
+}}
+[data-testid="stTable"] thead th {{
+    text-align: center !important;
+}}
 .st-key-brand_header {{
     background: rgba(255, 255, 255, 0.94);
-    border: 1px solid rgba(75, 46, 131, 0.20);
+    border: 1px solid rgba(0, 91, 150, 0.22);
     border-radius: 10px;
-    box-shadow: 0 4px 16px rgba(47, 33, 84, 0.08);
-    padding: 0.75rem 1.15rem;
+    box-shadow: 0 4px 16px rgba(0, 91, 150, 0.09);
+    padding: 0.70rem 1.15rem 0.80rem;
     margin-bottom: 0.85rem;
 }}
-.st-key-brand_header [data-testid="stImage"] {{
-    background: #FFFFFF;
-    border: 1px solid rgba(75, 46, 131, 0.22);
-    border-radius: 9px;
-    box-shadow: 0 2px 8px rgba(47, 33, 84, 0.08);
-    padding: 0.80rem 0.95rem;
+.st-key-brand_header h1 {{
+    color: #005B96 !important;
+    letter-spacing: -0.015em;
+    text-align: center;
+    margin-top: 0.10rem;
+    margin-bottom: 0.15rem;
 }}
-.st-key-brand_header img {{
-    filter: drop-shadow(0 2px 5px rgba(47, 33, 84, 0.16));
+.st-key-brand_header [data-testid="stCaptionContainer"] {{
+    color: #356B8F;
+    text-align: center;
 }}
 .journey-grid {{
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 0.75rem;
     margin: 0.35rem 0 1rem 0;
 }}
@@ -181,52 +219,51 @@ if current_user["role"] == "BRANCH" and not current_user.get("branch_code"):
     st.error("Your branch account has no branch scope.")
     st.stop()
 
-with st.container(key="brand_header"):
-    brand_logo, brand_title = st.columns([1.35, 4], vertical_alignment="center")
-    with brand_logo:
-        st.image(TOP_HEADER_LOGO, width="stretch")
-    with brand_title:
-        st.title("Utkarsh Bank AI-Powered Lending Ecosystem")
-        st.caption(
-            "Predict customer needs and risks · Activate governed campaigns · Explore portfolio intelligence"
-        )
+with st.container(key="brand_header", horizontal_alignment="center"):
+    st.title("AI-Powered Lending Ecosystem")
+    st.caption(
+        "Observe business pain points · Analyze drivers · Predict outcomes · Act through campaigns · Monitor impact"
+    )
 
 st.html("""
 <div class="journey-grid" aria-label="AI-powered lending journey">
   <section class="journey-card" style="--journey-accent:#4B2E83">
-    <span class="journey-number">STAGE 01</span><h3>1. Predict</h3>
-    <p>AI/ML identifies opportunity, risk and next-best action.</p>
+    <span class="journey-number">STAGE 01</span><h3>1. Observe</h3>
+    <p>Surface attrition, defaults, funnel leakage and missed opportunity.</p>
   </section>
   <section class="journey-card" style="--journey-accent:#E97924">
-    <span class="journey-number">STAGE 02</span><h3>2. Activate</h3>
-    <p>Campaign Agent converts predictions into governed actions.</p>
+    <span class="journey-number">STAGE 02</span><h3>2. Analyze</h3>
+    <p>Conversational BI explains trends, comparisons and drivers.</p>
   </section>
   <section class="journey-card" style="--journey-accent:#315CA8">
-    <span class="journey-number">STAGE 03</span><h3>3. Understand</h3>
-    <p>Conversational BI answers grounded portfolio questions.</p>
+    <span class="journey-number">STAGE 03</span><h3>3. Predict</h3>
+    <p>AI/ML identifies opportunity, risk and next-best offer or action.</p>
   </section>
   <section class="journey-card" style="--journey-accent:#15803D">
-    <span class="journey-number">STAGE 04</span><h3>4. Measure</h3>
-    <p>Executive reporting quantifies conversion and business impact.</p>
+    <span class="journey-number">STAGE 04</span><h3>4. Act</h3>
+    <p>Campaign Agent converts predictions into governed outreach.</p>
+  </section>
+  <section class="journey-card" style="--journey-accent:#607D3B">
+    <span class="journey-number">STAGE 05</span><h3>5. Monitor</h3>
+    <p>Executive reporting tracks conversion and business impact.</p>
   </section>
 </div>
 """)
 
-pages = ["AI/ML intelligence", "Campaign agent", "Conversational BI", "Executive Business Impact report"]
-st.sidebar.title("Utkarsh Bank")
-st.sidebar.caption("AI-Powered Lending Ecosystem")
+pages = ["Observe", "Analyze", "AI/ML intelligence", "Campaign agent", "Executive Business Impact report"]
+st.sidebar.markdown("### Utkarsh Bank")
+active_scope = "All branches" if current_user["role"] == "HO" else current_user["branch_code"]
 with st.sidebar.container(border=True):
-    st.markdown(f"**{current_user['display_name']}**")
-    st.caption(f"Username: {current_user['username']}")
-    st.badge("Head Office" if current_user["role"] == "HO" else "Branch user", color="violet")
-    active_scope = "All branches" if current_user["role"] == "HO" else current_user["branch_code"]
-    st.caption(f"Data scope: {active_scope}")
+    role_label = "Head Office" if current_user["role"] == "HO" else "Branch user"
+    st.markdown(f"**{current_user['display_name']}** · {role_label}")
+    st.caption(f"{current_user['username']} · Scope: {active_scope}")
     if st.button("Sign out", icon=":material/logout:", width="stretch"):
         st.session_state.clear()
         st.rerun()
 st.sidebar.subheader("Demo modules", icon=":material/apps:")
-st.sidebar.caption("Select a workspace")
-page = st.sidebar.radio("Demo modules", pages, label_visibility="collapsed")
+if st.session_state.get("module_page") == "Conversational BI":
+    st.session_state.module_page = "Analyze"
+page = st.sidebar.radio("Demo modules", pages, label_visibility="collapsed", key="module_page")
 
 def configured_secret(name, default=""):
     value = os.getenv(name, "")
@@ -240,25 +277,25 @@ def configured_secret(name, default=""):
 groq_api_key = configured_secret("GROQ_API_KEY")
 groq_model = configured_secret("GROQ_MODEL", DEFAULT_MODEL)
 groq_insight_model = configured_secret("GROQ_INSIGHT_MODEL", DEFAULT_INSIGHT_MODEL)
-with st.sidebar.popover(
-    "Groq AI settings",
-    icon=":material/tune:",
-    width="stretch",
-):
-    st.markdown("**Provider:** Groq")
-    st.caption(f"SQL planner: {groq_model}")
-    st.caption(f"Insight model: {groq_insight_model}")
-    st.caption("Simple questions use the zero-token deterministic path. Complex SQL uses the 120B planner.")
-    insight_temperature = st.slider(
-        "Insight temperature",
-        min_value=0.0,
-        max_value=1.0,
-        value=0.1,
-        step=0.1,
-        disabled=not bool(groq_api_key),
-        help="SQL planning is fixed near zero for accuracy. This controls only grounded insight wording.",
-    )
-    st.badge("Groq ready" if groq_api_key else "GROQ_API_KEY required", color="green" if groq_api_key else "orange")
+with st.sidebar.container(key="groq_settings_section"):
+    with st.expander(
+        "Groq AI settings",
+        icon=":material/tune:",
+        expanded=False,
+    ):
+        st.caption(f"SQL: {groq_model} · Insights: {groq_insight_model}")
+        st.caption("Simple queries run locally with zero LLM tokens; complex queries use Groq.")
+        insight_temperature = st.slider(
+            "Insight temperature",
+            min_value=0.0,
+            max_value=1.0,
+            value=0.1,
+            step=0.1,
+            disabled=not bool(groq_api_key),
+            help="SQL planning is fixed near zero for accuracy. This controls only grounded insight wording.",
+        )
+        st.badge("Groq ready" if groq_api_key else "GROQ_API_KEY required", color="green" if groq_api_key else "orange")
+token_panel = st.sidebar.container(key="token_usage_panel")
 if page not in pages:
     st.error("Unauthorized module selection.")
     st.stop()
@@ -267,18 +304,184 @@ if "token_usage" not in st.session_state:
     st.session_state.token_usage = zero_usage()
 if "bi_messages" not in st.session_state:
     st.session_state.bi_messages = []
-token_panel = st.sidebar.container()
-
 @st.cache_data(ttl=60, show_spinner=False)
 def load_portfolio(branch_code):
     return enrich_portfolio(scored_customers(branch_code))
 
+@st.cache_data(ttl=60, show_spinner=False)
+def load_historical_portfolio(branch_code):
+    return build_historical_portfolio(load_portfolio(branch_code), months=36)
+
 branch_scope = current_user["branch_code"] if current_user["role"] == "BRANCH" else None
 df = load_portfolio(branch_scope)
+history_df = load_historical_portfolio(branch_scope)
 pilot = df[df.cohort == "pilot"].copy()
 control = df[df.cohort == "control"].copy()
 
-if page == "LMS overview":
+if page == "Observe":
+    st.subheader("Observe business performance and pain areas", icon=":material/visibility:")
+    st.caption(
+        f"36-month governed analytical view · scope: {active_scope} · synthetic stressed-pilot outcomes calibrated to expose improvement opportunities."
+    )
+    observed = observe_metrics(history_df)
+    current = observed["current"]
+    prior = observed["previous_year"]
+
+    pain_cards = [
+        ("Customer attrition", "churn_rate_pct", True, "Retention leakage", "Churn prediction"),
+        ("Default rate", "default_rate_pct", True, "Credit quality pressure", "Default & early warning"),
+        ("Lead conversion", "lead_conversion_pct", False, "Funnel leakage", "Propensity / Credit decisioning"),
+        ("Cross-sell conversion", "cross_sell_conversion_pct", False, "Missed wallet share", "Cross-sell / Next Best Offer"),
+        ("Collection efficiency", "collection_efficiency_pct", False, "Recovery inefficiency", "Collections intelligence"),
+        ("Manual-review rate", "manual_reviews", True, "Operational effort and slower turnaround", "Credit decisioning"),
+    ]
+    metric_columns = st.columns(3) + st.columns(3)
+    for column, (title, metric, inverse, pain, target) in zip(metric_columns, pain_cards):
+        with column:
+            with st.container(border=True):
+                if metric == "manual_reviews":
+                    value = 100 * float(current[metric]) / max(float(current["account_count"]), 1)
+                    previous = 100 * float(prior[metric]) / max(float(prior["account_count"]), 1)
+                else:
+                    value, previous = float(current[metric]), float(prior[metric])
+                st.metric(
+                    title,
+                    f"{value:.2f}%",
+                    f"{value-previous:+.2f} pp YoY",
+                    delta_color="inverse" if inverse else "normal",
+                    border=False,
+                )
+                st.badge("Attention required", color="red")
+                st.caption(f"Pain area: {pain} · Suggested module: {target}")
+
+    latest_month = history_df["month"].max()
+    latest = history_df[history_df["month"] == latest_month]
+    funnel_values = {
+        "Leads": int(latest["leads"].sum()),
+        "Applications": int(latest["applications"].sum()),
+        "Credit evaluation": int(latest["credit_evaluated"].sum()),
+        "Approved": int(latest["approved"].sum()),
+        "Disbursal": int(latest["disbursed"].sum()),
+    }
+    funnel = pd.DataFrame({"Stage": list(funnel_values), "Customers": list(funnel_values.values())})
+    funnel["Conversion from leads %"] = (100 * funnel["Customers"] / max(funnel.iloc[0]["Customers"], 1)).round(2)
+    funnel["Drop-off from prior stage"] = funnel["Customers"].shift(1).sub(funnel["Customers"]).fillna(0).astype(int)
+    trend = history_df.groupby("month", as_index=False).agg(
+        portfolio_amount=("portfolio_amount", "sum"),
+        account_count=("account_count", "sum"),
+        new_accounts=("new_accounts", "sum"),
+        default_accounts=("default_accounts", "sum"),
+        delinquent_accounts=("delinquent_accounts", "sum"),
+        churned_customers=("churned_customers", "sum"),
+        leads=("leads", "sum"),
+        applications=("applications", "sum"),
+        credit_evaluated=("credit_evaluated", "sum"),
+        approved=("approved", "sum"),
+        disbursed=("disbursed", "sum"),
+        cross_sell_contacted=("cross_sell_contacted", "sum"),
+        cross_sell_accepted=("cross_sell_accepted", "sum"),
+        collection_due=("collection_due", "sum"),
+        collection_received=("collection_received", "sum"),
+        manual_reviews=("manual_reviews", "sum"),
+    )
+    trend["Portfolio amount ₹ Cr"] = trend.portfolio_amount / 10_000_000
+    trend["Default rate %"] = 100 * trend.default_accounts / trend.account_count.clip(lower=1)
+    trend["Delinquency rate %"] = 100 * trend.delinquent_accounts / trend.account_count.clip(lower=1)
+    trend["Attrition rate %"] = 100 * trend.churned_customers / trend.account_count.clip(lower=1)
+    trend["Application rate %"] = 100 * trend.applications / trend.leads.clip(lower=1)
+    trend["Approval rate %"] = 100 * trend.approved / trend.credit_evaluated.clip(lower=1)
+    trend["Lead conversion %"] = 100 * trend.disbursed / trend.leads.clip(lower=1)
+    trend["Manual underwriting %"] = 100 * trend.manual_reviews / trend.account_count.clip(lower=1)
+    trend["Cross-sell conversion %"] = 100 * trend.cross_sell_accepted / trend.cross_sell_contacted.clip(lower=1)
+    trend["Collection efficiency %"] = 100 * trend.collection_received / trend.collection_due.clip(lower=1)
+
+    funnel_tab, trend_tab, underwriting_tab = st.tabs(
+        ["Lead conversion funnel", "Trend By Metric", "Underwriting quality"]
+    )
+    with funnel_tab:
+        chart, table = st.columns([3, 2])
+        with chart:
+            funnel_order = ["Leads", "Applications", "Credit evaluation", "Approved", "Disbursal"]
+            funnel_chart = (
+                alt.Chart(funnel)
+                .mark_bar(color="#4B2E83", cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
+                .encode(
+                    x=alt.X("Stage:N", sort=funnel_order, title=None, axis=alt.Axis(labelAngle=0)),
+                    y=alt.Y("Customers:Q", title="Customers"),
+                    tooltip=["Stage:N", alt.Tooltip("Customers:Q", format=",")],
+                )
+                .properties(height=360)
+            )
+            st.altair_chart(funnel_chart)
+        with table:
+            st.dataframe(funnel, hide_index=True, width="stretch", height=360)
+        st.info(
+            "Recommended action: use Propensity and Credit decisioning outputs to investigate the largest stage drop-off, then activate an approved campaign.",
+            icon=":material/lightbulb:",
+        )
+    with trend_tab:
+        control_a, control_b = st.columns(2)
+        with control_a:
+            trend_period = st.segmented_control(
+                "Trend period",
+                ["1 year", "2 years", "3 years"],
+                default="3 years",
+                key="observe_trend_period",
+            )
+        with control_b:
+            trend_measure_label = st.selectbox(
+                "Metric",
+                [
+                    "Portfolio amount",
+                    "Total accounts",
+                    "New accounts",
+                    "Application rate",
+                    "Approval rate",
+                    "Lead conversion rate",
+                    "Default rate",
+                    "Delinquency rate",
+                    "Customer attrition rate",
+                    "Manual underwriting rate",
+                    "Cross-sell conversion rate",
+                    "Collection efficiency",
+                ],
+                key="observe_trend",
+            )
+        metric_column = {
+            "Portfolio amount": "Portfolio amount ₹ Cr",
+            "Total accounts": "account_count",
+            "New accounts": "new_accounts",
+            "Application rate": "Application rate %",
+            "Approval rate": "Approval rate %",
+            "Lead conversion rate": "Lead conversion %",
+            "Default rate": "Default rate %",
+            "Delinquency rate": "Delinquency rate %",
+            "Customer attrition rate": "Attrition rate %",
+            "Manual underwriting rate": "Manual underwriting %",
+            "Cross-sell conversion rate": "Cross-sell conversion %",
+            "Collection efficiency": "Collection efficiency %",
+        }[trend_measure_label]
+        months_to_show = {"1 year": 12, "2 years": 24, "3 years": 36}[trend_period]
+        visible_trend = trend.tail(months_to_show)
+        st.line_chart(
+            visible_trend,
+            x="month",
+            y=metric_column,
+            x_label="Month",
+            y_label=trend_measure_label,
+            height=360,
+        )
+        st.caption(f"Showing the latest {trend_period} for {trend_measure_label.lower()}. Use Analyze for detailed MoM, QoQ and YoY comparisons.")
+    with underwriting_tab:
+        under_cols = st.columns(3)
+        under_cols[0].metric("Manual reviews", f"{int(current['manual_reviews']):,}", border=True)
+        under_cols[1].metric("Good customers rejected", f"{int(current['good_customers_rejected']):,}", border=True)
+        under_cols[2].metric("Risky customers approved", f"{int(current['risky_customers_approved']):,}", border=True)
+        st.warning(
+            "Review Credit decisioning and Default & early-warning outputs. Policy changes require validation and Business Head / Risk approval."
+        )
+
+elif page == "LMS overview":
     st.subheader("Executive lending overview")
     st.caption(f"Production-shaped synthetic portfolio · {len(df):,} customer records · shared across every module")
     st.markdown("**Offer base → pilot assignment → eligibility → propensity and risk → offer → campaign → response or organic lead → onboarding → underwriting → agreement → disbursal → monitoring → collections**")
@@ -294,10 +497,7 @@ if page == "LMS overview":
 elif page == "Executive Business Impact report":
     st.subheader("Executive Business Impact report", icon=":material/monitoring:")
     st.caption(f"Business impact delivered by each AI/ML use case within the authorized scope: {active_scope} · synthetic demo estimates.")
-    impact_tab, funnel_tab = st.tabs([
-        "AI/ML business impact",
-        "Lead conversion waterfall",
-    ])
+    impact_tab = st.tabs(["AI/ML business impact"])[0]
     with impact_tab:
         impact = executive_impact_report(df)
         total_opportunities = int(impact["Qualified audience"].sum())
@@ -366,7 +566,7 @@ elif page == "Executive Business Impact report":
             icon=":material/download:",
         )
 
-    with funnel_tab:
+    if False:  # Funnel is intentionally presented in Observe, before analysis and prediction.
         stage_report, waterfall, product_funnel, potential_disbursal = lead_conversion_analytics(df)
         lead_amount, login_amount, quote_amount, disbursal_amount = stage_report["Amount ₹ Cr"].tolist()
         disbursal_accounts = int(stage_report.iloc[3]["Accounts"])
@@ -461,23 +661,81 @@ elif page == "AI/ML intelligence":
     with tabs[0]:
         view = df.sort_values("propensity", ascending=False)
         st.metric("High-propensity customers", f"{int((view.propensity >= .75).sum()):,}")
-        propensity_columns = AI_COLUMNS + ["preferred_channel", "contact_hour"]
+        propensity_columns = [
+            "customer_id", "name", "branch_code", "city", "product", "customer_segment",
+            "bureau", "risk", "propensity", "preferred_channel", "contact_hour",
+        ]
         st.dataframe(view[propensity_columns].head(500), hide_index=True, width="stretch", column_config={
+            "customer_segment": st.column_config.TextColumn("Customer profile segment"),
             "preferred_channel": st.column_config.TextColumn("Preferred channel", pinned=True),
             "contact_hour": st.column_config.NumberColumn("Preferred contact time", format="%d:00"),
         })
     with tabs[1]:
-        view = df.sort_values(["risk", "dpd"], ascending=False)
-        st.metric("High default-risk customers", f"{int((view.risk >= .60).sum()):,}")
-        st.dataframe(view[AI_COLUMNS + ["dpd", "collection_priority"]].head(500), hide_index=True, width="stretch")
+        st.caption(
+            "Forward-looking 90-day risk output. It includes standard customers showing emerging risk as well as currently delinquent/defaulted accounts."
+        )
+        status_rank = {"Standard": 0, "Delinquent": 1, "Defaulted": 2}
+        view = df[df["default_probability_90d"] >= .45].copy()
+        view["_status_rank"] = view["current_account_status"].map(status_rank)
+        view = view.sort_values(["_status_rank", "default_probability_90d"], ascending=[True, False])
+        with st.container(horizontal=True):
+            st.metric("High predicted risk", f"{int((view.default_probability_90d >= .60).sum()):,}", border=True)
+            st.metric("Standard but at risk", f"{int((view.current_account_status == 'Standard').sum()):,}", border=True)
+            st.metric("Already delinquent/defaulted", f"{int((view.current_account_status != 'Standard').sum()):,}", border=True)
+        default_columns = [
+            "customer_id", "name", "branch_code", "city", "product", "customer_segment",
+            "current_account_status", "default_probability_90d", "bureau", "dpd",
+            "delinquency_events_12m", "utilization", "aa_cashflow", "outstanding",
+        ]
+        st.dataframe(
+            crore_display(view[default_columns].head(500)),
+            hide_index=True,
+            width="stretch",
+            column_config={
+                "customer_segment": st.column_config.TextColumn(
+                    "Customer profile segment",
+                    help="Business/customer profile such as Salaried, Self-employed or Micro enterprise—not a credit decision.",
+                ),
+                "current_account_status": st.column_config.TextColumn("Current account status", pinned=True),
+                "default_probability_90d": st.column_config.NumberColumn(
+                    "Predicted default probability (90 days)", format="percent"
+                ),
+                "dpd": st.column_config.NumberColumn(
+                    "Current DPD",
+                    help="Days past due today. Zero means the account is currently standard.",
+                ),
+                "delinquency_events_12m": st.column_config.NumberColumn(
+                    "Delinquency events (last 12 months)",
+                    help="Count of separate late-payment events in the previous 12 months; it is not a yes/no default flag.",
+                ),
+            },
+        )
     with tabs[2]:
         view = df.sort_values("churn_probability", ascending=False)
         st.metric("High churn-risk customers", f"{int((view.churn_probability >= .65).sum()):,}")
-        st.dataframe(view[AI_COLUMNS].head(500), hide_index=True, width="stretch")
+        churn_columns = [
+            "customer_id", "name", "branch_code", "city", "product", "customer_segment",
+            "risk", "churn_probability", "past_complaint", "preferred_channel", "contact_hour",
+        ]
+        st.dataframe(view[churn_columns].head(500), hide_index=True, width="stretch", column_config={
+            "customer_segment": st.column_config.TextColumn("Customer profile segment"),
+            "churn_probability": st.column_config.NumberColumn("Churn probability", format="percent"),
+            "contact_hour": st.column_config.NumberColumn("Preferred contact time", format="%d:00"),
+        })
     with tabs[3]:
         view = df.sort_values("cross_sell_score", ascending=False)
         st.metric("Priority cross-sell customers", f"{int((view.cross_sell_score >= .70).sum()):,}")
-        st.dataframe(view[AI_COLUMNS].head(500), hide_index=True, width="stretch")
+        cross_sell_columns = [
+            "customer_id", "name", "branch_code", "city", "product", "customer_segment",
+            "recommended_product", "recommended_action", "cross_sell_score", "propensity",
+            "risk", "preferred_channel", "contact_hour",
+        ]
+        st.dataframe(view[cross_sell_columns].head(500), hide_index=True, width="stretch", column_config={
+            "customer_segment": st.column_config.TextColumn("Customer profile segment"),
+            "recommended_product": st.column_config.TextColumn("Recommended product", pinned=True),
+            "recommended_action": st.column_config.TextColumn("Recommended action"),
+            "contact_hour": st.column_config.NumberColumn("Preferred contact time", format="%d:00"),
+        })
     with tabs[4]:
         st.caption("Credit eligibility and policy outcome with the principal underwriting signals and reason codes.")
         decision_rank = {
@@ -499,7 +757,17 @@ elif page == "AI/ML intelligence":
             "utilization", "delinquencies", "aa_cashflow", "kyc", "segment", "amount",
             "rate", "reasons",
         ]
-        st.dataframe(crore_display(view[decision_columns].head(500)), hide_index=True, width="stretch")
+        st.dataframe(
+            crore_display(view[decision_columns].head(500)),
+            hide_index=True,
+            width="stretch",
+            column_config={
+                "segment": st.column_config.TextColumn(
+                    "Credit decision outcome",
+                    help="Policy result: pre-approved, pre-qualified, underwriting/manual review or decline.",
+                ),
+            },
+        )
     with tabs[5]:
         st.caption("Customer persona, personalized product recommendation and preferred engagement channel and time.")
         view = df.sort_values(["propensity", "cross_sell_score", "risk"], ascending=[False, False, True])
@@ -509,18 +777,40 @@ elif page == "AI/ML intelligence":
             st.metric("Preferred channels", f"{view.preferred_channel.nunique():,}", border=True)
         personalization_columns = [
             "customer_id", "name", "branch_code", "city", "customer_persona", "customer_segment", "product",
-            "recommended_product", "propensity", "cross_sell_score", "preferred_channel",
-            "contact_hour", "amount", "rate",
+            "recommended_product", "recommended_action", "past_complaint", "propensity",
+            "cross_sell_score", "preferred_channel", "contact_hour", "amount", "rate",
         ]
         st.dataframe(crore_display(view[personalization_columns].head(500)), hide_index=True, width="stretch", column_config={
             "customer_persona": st.column_config.TextColumn("Customer persona", pinned=True),
+            "customer_segment": st.column_config.TextColumn("Customer profile segment"),
+            "recommended_product": st.column_config.TextColumn("Recommended product"),
+            "recommended_action": st.column_config.TextColumn("Recommended action"),
             "preferred_channel": st.column_config.TextColumn("Preferred channel"),
             "contact_hour": st.column_config.NumberColumn("Preferred contact time", format="%d:00"),
         })
     with tabs[6]:
+        st.caption("Collection prioritization output only. Product offers and recommended actions are intentionally excluded.")
         view = df[df.dpd > 0].sort_values("collection_priority", ascending=False)
         st.metric("Active collections worklist", f"{len(view):,}")
-        st.dataframe(crore_display(view[AI_COLUMNS + ["dpd", "collection_amount_due", "collection_amount_received", "collection_priority"]].head(500)), hide_index=True, width="stretch")
+        collections_columns = [
+            "customer_id", "name", "branch_code", "city", "product", "customer_segment",
+            "risk", "dpd", "delinquencies", "outstanding", "collection_amount_due",
+            "collection_amount_received", "collection_priority", "preferred_channel", "contact_hour",
+        ]
+        st.dataframe(
+            crore_display(view[collections_columns].head(500)),
+            hide_index=True,
+            width="stretch",
+            column_config={
+                "customer_segment": st.column_config.TextColumn(
+                    "Customer profile segment",
+                    help="Business/customer profile used for analysis—not a credit decision outcome.",
+                ),
+                "risk": st.column_config.NumberColumn("Default-risk probability", format="percent"),
+                "collection_priority": st.column_config.NumberColumn("Collection priority", format="percent"),
+                "contact_hour": st.column_config.NumberColumn("Preferred contact time", format="%d:00"),
+            },
+        )
     with tabs[7]:
         st.caption("Recommended product offer and complaint-led service action derived from each customer's past complaint history.")
         action_rank = {"Attention": 0, "Decision": 1, "Offer": 2, "Information": 3}
@@ -556,40 +846,73 @@ elif page == "AI/ML intelligence":
         )
     st.download_button("Download complete prediction output", df[AI_COLUMNS].to_csv(index=False), "lending_prediction_output.csv", "text/csv", icon=":material/download:")
 
-elif page == "Conversational BI":
-    st.subheader("Conversational BI", icon=":material/query_stats:")
-    st.caption(f"Ask grounded business questions across the authorized portfolio scope: {active_scope}.")
+elif page == "Analyze":
+    st.subheader("Analyze — Conversational BI", icon=":material/query_stats:")
+    st.caption(f"Diagnose what changed, where it changed and whether action is required · authorized scope: {active_scope}.")
     with st.container(border=True):
-        st.markdown("**Try:** total outstanding portfolio · branch with highest delinquency · high default-risk customers · PL eligibility · cross-sell opportunities · collection efficiency · churn risk · DPD greater than 30")
-    for message in st.session_state.bi_messages[-6:]:
+        st.markdown("**What Analyze means**")
+        explain_a, explain_b, explain_c = st.columns(3)
+        explain_a.markdown("**Compare**  \nMoM, QoQ and YoY movement across portfolio and operational KPIs.")
+        explain_b.markdown("**Drill down**  \nIdentify the affected product, branch, region or customer segment.")
+        explain_c.markdown("**Connect to action**  \nRecommend a relevant AI/ML output only when the metric is deteriorating.")
+    with st.expander("Analyze module test cases", icon=":material/fact_check:"):
+        analyze_test_cases = pd.DataFrame([
+            {"Test question": "Show portfolio growth compared with last year", "Expected behavior": "Defaults to portfolio amount and returns YoY growth.", "Expected path": "Historical analytics"},
+            {"Test question": "What are the drivers for this portfolio growth?", "Expected behavior": "Returns leading product and branch contribution in ₹ Cr.", "Expected path": "Historical analytics"},
+            {"Test question": "Show new accounts added MoM by product", "Expected behavior": "Compares monthly account additions across products.", "Expected path": "Historical analytics"},
+            {"Test question": "Which branch has the highest increase in default rate YoY?", "Expected behavior": "Returns one branch and recommends Default & early warning/Credit decisioning.", "Expected path": "Historical analytics"},
+            {"Test question": "Compare lead conversion QoQ", "Expected behavior": "Calculates quarterly conversion movement and links adverse movement to Propensity/Credit decisioning.", "Expected path": "Historical analytics"},
+            {"Test question": "Show collection efficiency trend", "Expected behavior": "Calculates collection-efficiency movement from amount due and received.", "Expected path": "Historical analytics"},
+            {"Test question": "Which product has the fastest portfolio growth?", "Expected behavior": "Ranks products by amount growth.", "Expected path": "Historical analytics"},
+            {"Test question": "Which branch has the highest number of defaulters?", "Expected behavior": "Returns one RBAC-scoped branch, not an unrestricted customer list.", "Expected path": "Deterministic fast path"},
+            {"Test question": "Compare average ticket size and risk by product", "Expected behavior": "Builds and executes governed read-only SQL.", "Expected path": "Groq dynamic SQL"},
+            {"Test question": "Compare performance", "Expected behavior": "Asks for the missing metric or comparison scope.", "Expected path": "Clarification"},
+        ])
+        st.dataframe(analyze_test_cases, hide_index=True, width="stretch", height=388)
+    with st.container(border=True):
+        st.markdown("**Try:** Personal Loan growth versus last year · new accounts MoM by product · default-rate YoY by branch · lead conversion QoQ · region with declining portfolio · collection efficiency trend")
+    visible_messages = st.session_state.bi_messages[-6:]
+    latest_user_question = ""
+    for message in visible_messages:
         with st.chat_message(message["role"]):
+            if message["role"] == "user":
+                latest_user_question = message["content"]
             st.markdown(message["content"])
             if message.get("route"):
-                route_label = "Deterministic fast path" if message["route"].startswith("deterministic:") else f"Groq LLM path · {message.get('model', groq_model)}"
+                if message["route"].startswith("historical:"):
+                    route_label = "Governed historical analytics path"
+                elif message["route"].startswith("deterministic:"):
+                    route_label = "Deterministic fast path"
+                else:
+                    route_label = f"Groq LLM path · {message.get('model', groq_model)}"
                 st.caption(route_label)
             if message.get("sql"):
                 with st.expander("Generated governed SQL"):
                     st.code(message["sql"], language="sql")
-            if message.get("data"):
-                st.dataframe(crore_display(pd.DataFrame(message["data"])), hide_index=True, width="stretch")
+            message_data = pd.DataFrame(message.get("data", []))
+            if should_display_result_table(latest_user_question, message_data):
+                st.dataframe(crore_display(message_data), hide_index=True, width="stretch")
     question = st.chat_input("Ask a lending portfolio question")
     if question:
         response = answer_hybrid_bi(
             question,
             df,
             st.session_state.bi_messages,
+            historical_df=history_df,
             api_key=groq_api_key or None,
             model=groq_model,
             insight_temperature=insight_temperature,
             insight_model=groq_insight_model,
         )
         display = response.data.head(200)
+        show_table = should_display_result_table(question, display)
         st.session_state.bi_messages.extend([
             {"role": "user", "content": question},
             {
                 "role": "assistant",
                 "content": response.answer,
                 "data": display.to_dict("records"),
+                "show_table": show_table,
                 "route": response.route,
                 "sql": response.sql,
                 "model": response.model,
@@ -835,7 +1158,7 @@ with token_panel:
             "background-color": "#FFFFFF",
             "color": "#17324D",
             "border-color": "#D9E2EC",
-            "font-size": "0.82rem",
+            "font-size": "0.88rem",
         })
         .set_table_styles([
             {
@@ -845,6 +1168,7 @@ with token_panel:
                     ("color", "#123A52"),
                     ("font-weight", "700"),
                     ("border-color", "#CBD8E2"),
+                    ("font-size", "0.88rem"),
                 ],
             }
         ])

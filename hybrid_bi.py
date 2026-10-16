@@ -10,6 +10,7 @@ from typing import Any
 import pandas as pd
 
 from lending_analytics import answer_bi, estimate_tokens
+from historical_analytics import answer_historical_bi
 
 
 DEFAULT_MODEL = "openai/gpt-oss-120b"
@@ -71,6 +72,31 @@ def zero_usage() -> dict[str, int]:
         "AI insight": 0,
         "Total": 0,
     }
+
+
+def should_display_result_table(question: str, data: pd.DataFrame) -> bool:
+    """Show supporting rows only when they add information beyond the direct answer."""
+    if data.empty:
+        return False
+    q = question.lower().strip()
+    explicit_detail = any(
+        marker in q
+        for marker in (
+            "table", "list", "details", "detail", "breakdown", "all branches",
+            "all products", "all regions", "all segments",
+        )
+    ) or bool(re.search(r"\b(top|bottom)\s+\d+\b", q))
+    if explicit_detail:
+        return True
+    singular_ranking = any(
+        marker in q
+        for marker in ("highest", "lowest", "fastest", "most", "least", "best", "worst")
+    )
+    executive_summary = any(marker in q for marker in ("key driver", "main driver", "growth driver"))
+    direct_scalar = any(marker in q for marker in ("total", "how much", "what is the"))
+    if singular_ranking or executive_summary or direct_scalar or len(data) == 1:
+        return False
+    return True
 
 
 def _requires_llm(question: str, local_route: str) -> bool:
@@ -189,22 +215,28 @@ def _fallback_insight(result: pd.DataFrame, title: str) -> str:
 
 
 def _insight(client: Any, question: str, result: pd.DataFrame, title: str, model: str, temperature: float) -> Any:
-    sample = result.head(5).to_json(orient="records", double_precision=4)
+    sample = result.head(3).to_json(orient="records", double_precision=4)
     return client.chat.completions.create(
         model=model,
         messages=[
             {
                 "role": "system",
                 "content": (
-                    "Answer from the supplied result only in exactly one plain-text sentence of at most 35 words. "
-                    "No table, bullets, headings, markdown, or invented causes. Amounts are INR: use ₹ and "
-                    "convert large totals to crore (1 crore = 10,000,000)."
+                    "Answer only from the supplied query result in no more than 55 words. First state the direct "
+                    "business answer and evidence. Do not invent causes. Amounts are INR: use ₹ and convert large "
+                    "totals to crore (1 crore = 10,000,000). If the result clearly shows improvement or positive "
+                    "growth, do not recommend any action. Only for a clearly adverse result, append 'Recommended "
+                    "action:' and refer to the most relevant available output: Propensity for weak acquisition or "
+                    "lead conversion; Default & early warning or Credit decisioning for rising default/credit risk; "
+                    "Churn for worsening attrition; Cross-sell / up-sell or Next Best Offer/Action for weak cross-sell; "
+                    "Default & early warning for weak collection efficiency. If none applies, ask the Business Head "
+                    "to validate the drivers. No tables, bullets, headings, markdown, or unsupported prescriptions."
                 ),
             },
             {"role": "user", "content": f"Question: {question}\nTitle: {title}\nResult:\n{sample}"},
         ],
         temperature=max(1e-8, float(temperature)),
-        max_completion_tokens=220,
+        max_completion_tokens=200,
         reasoning_effort="low",
     )
 
@@ -214,12 +246,18 @@ def answer_hybrid_bi(
     scoped_df: pd.DataFrame,
     history: list[dict[str, Any]] | None = None,
     *,
+    historical_df: pd.DataFrame | None = None,
     api_key: str | None = None,
     model: str = DEFAULT_MODEL,
     insight_temperature: float = 0.1,
     insight_model: str = DEFAULT_INSIGHT_MODEL,
     client: Any = None,
 ) -> HybridBIResult:
+    if historical_df is not None:
+        historical_result = answer_historical_bi(question, historical_df)
+        if historical_result is not None:
+            answer, data, route = historical_result
+            return HybridBIResult(answer, data, route, zero_usage())
     local_answer, local_data, local_route = answer_bi(question, scoped_df)
     if not _requires_llm(question, local_route):
         return HybridBIResult(local_answer, local_data, f"deterministic:{local_route}", zero_usage())

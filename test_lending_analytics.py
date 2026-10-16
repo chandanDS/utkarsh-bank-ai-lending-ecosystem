@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from lending_analytics import answer_bi, classify_next_best_action
+from lending_analytics import answer_bi, classify_next_best_action, enrich_portfolio
 
 
 class ConversationalBiTests(unittest.TestCase):
@@ -71,6 +71,22 @@ class ConversationalBiTests(unittest.TestCase):
         self.assertEqual(len(result), 2)
         self.assertEqual(route, "default_risk")
         self.assertIn("2 customers", answer)
+
+    def test_forward_default_prediction_includes_standard_customer(self):
+        source = pd.DataFrame([{
+            "customer_id": "C00017", "outstanding": 1_000_000,
+            "collection_amount_due": 0, "collection_amount_received": 0,
+            "risk": .70, "response": 0, "dpd": 0, "aa_cashflow": .60,
+            "propensity": .55, "bureau": 620, "utilization": .90,
+            "delinquencies": 0, "current_emi": 20_000, "income": 50_000,
+            "segment": "underwriting", "product": "Personal Loan",
+            "customer_segment": "Salaried",
+        }])
+        enriched = enrich_portfolio(source).iloc[0]
+        self.assertEqual(enriched["current_account_status"], "Standard")
+        self.assertEqual(int(enriched["dpd"]), 0)
+        self.assertGreaterEqual(enriched["default_probability_90d"], .60)
+        self.assertGreaterEqual(int(enriched["delinquency_events_12m"]), 0)
 
 
 if __name__ == "__main__":

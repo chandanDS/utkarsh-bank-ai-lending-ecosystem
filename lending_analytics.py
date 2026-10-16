@@ -33,6 +33,25 @@ def enrich_portfolio(df: pd.DataFrame) -> pd.DataFrame:
     result["collection_priority"] = (
         result["risk"] * 0.55 + (result["dpd"] / 90).clip(0, 1) * 0.45
     ).clip(0, 1).round(3)
+    customer_number = pd.to_numeric(
+        result["customer_id"].str.extract(r"(\d+)", expand=False), errors="coerce"
+    ).fillna(0).astype(int)
+    result["delinquency_events_12m"] = (
+        result["delinquencies"].fillna(0).astype(int) * (1 + customer_number.mod(3))
+        + ((result["delinquencies"].fillna(0) == 0) & (customer_number.mod(17) == 0)).astype(int)
+    )
+    result["current_account_status"] = "Standard"
+    result.loc[result["dpd"].between(1, 59), "current_account_status"] = "Delinquent"
+    result.loc[result["dpd"] >= 60, "current_account_status"] = "Defaulted"
+    bureau_pressure = ((720 - result["bureau"]) / 180).clip(0, 1)
+    cashflow_pressure = ((1 - result["aa_cashflow"]) / 0.45).clip(0, 1)
+    result["default_probability_90d"] = (
+        result["risk"] * 0.38
+        + result["utilization"] * 0.27
+        + bureau_pressure * 0.20
+        + cashflow_pressure * 0.10
+        + (result["delinquency_events_12m"].clip(0, 3) / 3) * 0.05
+    ).clip(0.03, 0.96).round(3)
     result["recommended_product"] = result.apply(_recommended_product, axis=1)
     result["customer_persona"] = result.apply(_customer_persona, axis=1)
     complaint_details = result.apply(_complaint_recommendation, axis=1, result_type="expand")

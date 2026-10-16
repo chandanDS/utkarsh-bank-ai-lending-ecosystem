@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from hybrid_bi import answer_hybrid_bi, execute_governed_sql, validate_sql
+from hybrid_bi import answer_hybrid_bi, execute_governed_sql, should_display_result_table, validate_sql
 
 
 class FakeCompletions:
@@ -75,6 +75,33 @@ class HybridBiTests(unittest.TestCase):
             large,
         )
         self.assertEqual(int(result["accounts"].sum()), 10_000)
+
+    def test_single_answer_rankings_do_not_render_redundant_tables(self):
+        ranked = pd.DataFrame([
+            {"branch_code": "BR011", "growth_pct": 13.56},
+            {"branch_code": "BR004", "growth_pct": 11.20},
+        ])
+        self.assertFalse(should_display_result_table(
+            "Which branch has the highest increase in default rate YoY?", ranked
+        ))
+        self.assertTrue(should_display_result_table(
+            "Show the top 5 branches by increase in default rate YoY", ranked
+        ))
+        self.assertTrue(should_display_result_table(
+            "Show the branch breakdown for default-rate growth", ranked
+        ))
+
+    def test_key_driver_summary_hides_table_unless_breakdown_is_requested(self):
+        drivers = pd.DataFrame([
+            {"Driver type": "Product", "Driver": "Personal Loan", "Change ₹ Cr": 8.20},
+            {"Driver type": "Branch", "Driver": "BR011", "Change ₹ Cr": 4.10},
+        ])
+        self.assertFalse(should_display_result_table(
+            "What are the key drivers for this portfolio growth?", drivers
+        ))
+        self.assertTrue(should_display_result_table(
+            "Show a detailed breakdown of the portfolio growth drivers", drivers
+        ))
 
 
 if __name__ == "__main__":
