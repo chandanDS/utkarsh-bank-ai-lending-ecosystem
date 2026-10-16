@@ -34,7 +34,10 @@ def enrich_portfolio(df: pd.DataFrame) -> pd.DataFrame:
         result["risk"] * 0.55 + (result["dpd"] / 90).clip(0, 1) * 0.45
     ).clip(0, 1).round(3)
     result["recommended_product"] = result.apply(_recommended_product, axis=1)
-    result["recommended_action"] = result.apply(_recommended_action, axis=1)
+    result["customer_persona"] = result.apply(_customer_persona, axis=1)
+    complaint_details = result.apply(_complaint_recommendation, axis=1, result_type="expand")
+    complaint_details.columns = ["past_complaint", "complaint_reason", "recommended_action"]
+    result[["past_complaint", "complaint_reason", "recommended_action"]] = complaint_details
     return result
 
 
@@ -50,26 +53,49 @@ def _recommended_product(row: pd.Series) -> str:
     return "Top-up / protection plan"
 
 
-def _recommended_action(row: pd.Series) -> str:
-    if int(row.get("dpd") or 0) >= 30:
-        return "Specialist collections review"
-    if float(row.get("risk") or 0) >= 0.60:
-        return "Manual credit review"
-    if float(row.get("churn_probability") or 0) >= 0.65:
-        return "Retention outreach"
-    if float(row.get("propensity") or 0) >= 0.75:
-        return f"Offer {row.get('recommended_product', 'next best product')}"
-    return "Continue relationship nurturing"
+def _customer_persona(row: pd.Series) -> str:
+    risk = float(row.get("risk") or 0)
+    dpd = int(row.get("dpd") or 0)
+    outstanding = float(row.get("outstanding") or 0)
+    income = max(float(row.get("income") or 0), 1.0)
+    exposure_ratio = (outstanding + float(row.get("current_emi") or 0) * 12) / (income * 12)
+    if dpd >= 30 and exposure_ratio >= 1.25:
+        return "High liability delinquency prone borrower"
+    if risk >= 0.60 and exposure_ratio >= 1.00:
+        return "Stressed high exposure borrower"
+    if risk >= 0.45 or str(row.get("segment")) in {"underwriting", "decline", "review"}:
+        return "Risk prone sanction heavy client"
+    return "Healthy repayer"
+
+
+def _stable_customer_bucket(customer_id: object) -> int:
+    digits = re.sub(r"\D", "", str(customer_id or "0"))
+    return int(digits or 0) % 8
+
+
+def _complaint_recommendation(row: pd.Series) -> tuple[str, str, str]:
+    """Create reproducible complaint-led servicing actions for the synthetic demo."""
+    scenarios = [
+        ("UPI transaction not working", "Repeated UPI transaction failures in recent service history", "Proactively contact customer and troubleshoot UPI access"),
+        ("Account debited but beneficiary not credited", "Debit posted but beneficiary credit was delayed", "Share transaction status and initiate payment trace"),
+        ("Failed transaction refund delayed", "Refund turnaround exceeded the expected service window", "Confirm refund status and provide resolution timeline"),
+        ("Mobile banking login issue", "Multiple unsuccessful mobile-banking login attempts", "Guide secure access reset and confirm successful login"),
+        ("ATM cash not dispensed", "Cash withdrawal was declined after account debit", "Initiate ATM dispute review and communicate provisional status"),
+        ("Unexpected service charge", "Customer disputed a recently applied service charge", "Explain charge basis and route waiver decision if eligible"),
+        ("KYC update pending", "Prior KYC service request remains unresolved", "Request missing KYC information and schedule assisted completion"),
+        ("No material complaint recorded", "No unresolved complaint found in the available service history", "Share relevant product information through the preferred channel"),
+    ]
+    return scenarios[_stable_customer_bucket(row.get("customer_id"))]
 
 
 def classify_next_best_action(recommended_action: str) -> str:
     """Translate a specific recommendation into a business action category."""
     action = str(recommended_action or "").strip().lower()
-    if "collection" in action or "retention" in action:
+    if any(term in action for term in ("troubleshoot", "trace", "refund", "reset", "dispute", "pending")):
         return "Attention"
-    if "credit review" in action or "decision" in action:
+    if any(term in action for term in ("decision", "waiver")):
         return "Decision"
-    if action.startswith("offer "):
+    if "product" in action or action.startswith("offer "):
         return "Offer"
     return "Information"
 

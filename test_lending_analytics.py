@@ -60,11 +60,11 @@ class ConversationalBiTests(unittest.TestCase):
         self.assertIn("Personal Loan", answer)
 
     def test_next_best_action_business_categories(self):
-        self.assertEqual(classify_next_best_action("Specialist collections review"), "Attention")
-        self.assertEqual(classify_next_best_action("Retention outreach"), "Attention")
-        self.assertEqual(classify_next_best_action("Manual credit review"), "Decision")
+        self.assertEqual(classify_next_best_action("Proactively contact customer and troubleshoot UPI access"), "Attention")
+        self.assertEqual(classify_next_best_action("Share transaction status and initiate payment trace"), "Attention")
+        self.assertEqual(classify_next_best_action("Explain charge basis and route waiver decision if eligible"), "Decision")
         self.assertEqual(classify_next_best_action("Offer Home Loan"), "Offer")
-        self.assertEqual(classify_next_best_action("Continue relationship nurturing"), "Information")
+        self.assertEqual(classify_next_best_action("Confirm account information"), "Information")
 
     def test_generic_high_risk_still_returns_customer_detail(self):
         answer, result, route = answer_bi("show high default risk customers", self.df)

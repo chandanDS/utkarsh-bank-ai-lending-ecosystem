@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs
 
+from campaign_links import TEST_NUMBER
 from twilio_voice import build_call_request, configuration_status, place_test_call
 
 
@@ -24,7 +25,7 @@ class TwilioVoiceTests(unittest.TestCase):
         with patch.dict(os.environ, config, clear=True):
             request = build_call_request()
             fields = parse_qs(request.data.decode("utf-8"))
-            self.assertEqual(fields["To"], ["+918050702529"])
+            self.assertEqual(fields["To"], ["+91" + TEST_NUMBER])
             self.assertEqual(fields["Url"], ["https://webhooks.twilio.com/v1/Voice/Template/voice_text_to_speech"])
             self.assertNotIn("Twiml", fields)
             with self.assertRaises(ValueError):
