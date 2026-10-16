@@ -1,4 +1,5 @@
 import os
+import re
 import streamlit as st
 import pandas as pd
 import altair as alt
@@ -9,7 +10,7 @@ from engine import authenticate_user, init_db, rows, scored_customers, score, ev
 from airtel_voice import TEST_NUMBER, call_window_open, configuration_status, place_test_call
 from campaign_links import TEST_MESSAGE, VOICE_SCRIPT, launch_links
 from lending_analytics import AI_COLUMNS, CAMPAIGN_AUDIENCES, campaign_audience, classify_next_best_action, enrich_portfolio, executive_impact_report, lead_conversion_analytics
-from hybrid_bi import DEFAULT_INSIGHT_MODEL, DEFAULT_MODEL, answer_hybrid_bi, should_display_result_table, zero_usage
+from hybrid_bi import DEFAULT_INSIGHT_MODEL, DEFAULT_MODEL, answer_hybrid_bi, zero_usage
 from historical_analytics import build_historical_portfolio, observe_metrics
 from twilio_voice import authorized_test_numbers, configuration_status as twilio_configuration_status, place_test_call as place_twilio_test_call, trial_mode as twilio_trial_mode
 from twilio_messaging import configuration_status as twilio_message_configuration_status, send_test_message
@@ -171,6 +172,30 @@ st.logo(OFFICIAL_LOGO_URL, size="large")
 st.session_state.setdefault("auth_user", None)
 
 MONEY_MARKERS = ("amount", "outstanding", "income", "emi", "due", "received", "exposure", "disbursal", "impact")
+
+
+def should_display_result_table(question, data):
+    """Keep executive answers concise unless supporting detail was requested."""
+    if data.empty:
+        return False
+    normalized = question.lower().strip()
+    explicit_detail = any(
+        marker in normalized
+        for marker in (
+            "table", "list", "details", "detail", "breakdown", "all branches",
+            "all products", "all regions", "all segments",
+        )
+    ) or bool(re.search(r"\b(top|bottom)\s+\d+\b", normalized))
+    if explicit_detail:
+        return True
+    concise_answer = any(
+        marker in normalized
+        for marker in (
+            "highest", "lowest", "fastest", "most", "least", "best", "worst",
+            "key driver", "main driver", "growth driver", "total", "how much", "what is the",
+        )
+    )
+    return not concise_answer and len(data) > 1
 
 def crore_display(frame):
     """Convert displayed rupee-valued numeric columns to ₹ crore with two decimals."""
