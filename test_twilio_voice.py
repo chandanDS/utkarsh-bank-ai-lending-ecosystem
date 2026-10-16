@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs
 
 from campaign_links import TEST_NUMBER
-from twilio_voice import build_call_request, configuration_status, place_test_call
+from twilio_voice import authorized_test_numbers, build_call_request, configuration_status, place_test_call
 
 
 class TwilioVoiceTests(unittest.TestCase):
@@ -59,6 +59,11 @@ class TwilioVoiceTests(unittest.TestCase):
             self.assertIn("Chandan Singh", fields["Twiml"][0])
             self.assertNotIn("link", fields["Twiml"][0].lower())
             self.assertNotIn("Url", fields)
+
+    def test_multiple_authorized_numbers(self):
+        config = {"TWILIO_TEST_NUMBERS": "9876543210,8765432109"}
+        with patch.dict(os.environ, config, clear=True):
+            self.assertEqual(authorized_test_numbers(), ("9876543210", "8765432109"))
 
 
 if __name__ == "__main__":

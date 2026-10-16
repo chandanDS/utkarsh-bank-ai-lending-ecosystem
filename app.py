@@ -10,7 +10,7 @@ from airtel_voice import TEST_NUMBER, call_window_open, configuration_status, pl
 from campaign_links import TEST_MESSAGE, VOICE_SCRIPT, launch_links
 from lending_analytics import AI_COLUMNS, CAMPAIGN_AUDIENCES, campaign_audience, classify_next_best_action, enrich_portfolio, executive_impact_report, lead_conversion_analytics
 from hybrid_bi import DEFAULT_INSIGHT_MODEL, DEFAULT_MODEL, answer_hybrid_bi, zero_usage
-from twilio_voice import configuration_status as twilio_configuration_status, place_test_call as place_twilio_test_call, trial_mode as twilio_trial_mode
+from twilio_voice import authorized_test_numbers, configuration_status as twilio_configuration_status, place_test_call as place_twilio_test_call, trial_mode as twilio_trial_mode
 from twilio_messaging import configuration_status as twilio_message_configuration_status, send_test_message
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -639,12 +639,21 @@ elif page == "Campaign agent":
             st.markdown(f"**Recommended action:** {c.recommended_action}")
             st.caption(f"Branch {c.branch_code} · {c.city} · preferred channel {c.preferred_channel} · score {c.campaign_score:.1%}")
         channel = st.selectbox("Channel", ["WhatsApp", "SMS", "Voice bot"], index=["WhatsApp", "SMS", "Voice"].index(c.preferred_channel) if c.preferred_channel in ["WhatsApp", "SMS", "Voice"] else 0)
-        test_recipient = st.text_input("Test recipient mobile", value="8050702529", max_chars=10)
+        authorized_recipients = authorized_test_numbers()
+        selected_recipients = st.multiselect(
+            "Authorized test recipients",
+            authorized_recipients,
+            default=list(authorized_recipients[:1]),
+            format_func=lambda number: f"Test recipient · ******{number[-4:]}",
+        )
+        test_recipient = selected_recipients[0] if len(selected_recipients) == 1 else None
         campaign_message = campaign_meta["message"]
+        if channel == "WhatsApp":
+            campaign_message = "Utkarsh Bank demo: you may be interested in a suitable lending product. This is a simulated outreach; no offer is being made."
         st.text_area("Purpose-specific campaign message", campaign_message if channel != "Voice bot" else ("Twilio-hosted trial text-to-speech sample" if twilio_trial_mode() else VOICE_SCRIPT), height=110, disabled=True)
         st.caption("This is a simulated campaign workflow. Launch links open your own messaging or phone app; you decide whether to send or dial.")
-        if test_recipient == TEST_NUMBER:
-            links = launch_links(message=campaign_message)
+        if test_recipient in authorized_recipients:
+            links = launch_links(phone=test_recipient, message=campaign_message, authorized_numbers=authorized_recipients)
             if channel == "WhatsApp":
                 st.link_button("Open WhatsApp draft", links["whatsapp"])
             elif channel == "SMS":
@@ -653,32 +662,44 @@ elif page == "Campaign agent":
             else:
                 st.markdown(f"[Open phone dialer]({links['call']})")
                 st.code(VOICE_SCRIPT, language=None)
-        else:
-            st.warning(f"Sample launch links are available only for {TEST_NUMBER}.")
+        elif len(selected_recipients) > 1:
+            st.caption("Manual launch links and voice calls are available only when one recipient is selected. Twilio SMS and WhatsApp support the selected bulk audience.")
         st.info(f"Suggested local contact time: {int(c.contact_hour)}:00. Consent is present in demo data. Frequency caps and vendor delivery checks require integration.")
         if channel in {"SMS", "WhatsApp"}:
             st.markdown(f"#### Send test {channel}")
+            if channel == "WhatsApp":
+                st.caption("The approved Twilio Content Template must contain the standard demo message shown above.")
             missing_message_config = twilio_message_configuration_status(channel)
             if missing_message_config:
                 st.warning("Twilio messaging is unavailable. Configure " + ", ".join(missing_message_config) + ".")
             message_confirmed = st.checkbox(
-                f"I confirm this number is authorized to receive the test {channel} message",
+                f"I confirm all {len(selected_recipients)} selected number(s) are authorized to receive the test {channel} message",
                 key=f"confirm_{channel.lower()}",
             )
-            can_send_message = test_recipient == TEST_NUMBER and int(c.consent) == 1 and not missing_message_config and message_confirmed
-            if st.button(f"Send test {channel}", disabled=not can_send_message, type="primary"):
-                try:
-                    message_sid, message_status = send_test_message(channel, campaign_message, test_recipient)
-                    event(cid, "campaign", f"twilio_{channel.lower()}_requested", f"recipient=******{test_recipient[-4:]}; message_sid={message_sid}; status={message_status}", "campaign_agent")
-                    st.success(f"Twilio accepted the {channel} message. Message ID: {message_sid}; status: {message_status}.")
-                except (ValueError, HTTPError, URLError, TimeoutError) as exc:
-                    event(cid, "campaign", f"twilio_{channel.lower()}_failed", f"recipient=******{test_recipient[-4:]}; error_type={type(exc).__name__}", "campaign_agent")
-                    st.error(str(exc) if isinstance(exc, ValueError) else f"Twilio {channel} request failed ({type(exc).__name__}).")
+            can_send_message = bool(selected_recipients) and set(selected_recipients).issubset(authorized_recipients) and int(c.consent) == 1 and not missing_message_config and message_confirmed
+            button_label = f"Send bulk test {channel}" if len(selected_recipients) > 1 else f"Send test {channel}"
+            if st.button(button_label, disabled=not can_send_message, type="primary"):
+                accepted, failures = [], []
+                for recipient in selected_recipients:
+                    try:
+                        message_sid, message_status = send_test_message(channel, campaign_message, recipient)
+                        event(cid, "campaign", f"twilio_{channel.lower()}_requested", f"recipient=******{recipient[-4:]}; message_sid={message_sid}; status={message_status}", "campaign_agent")
+                        accepted.append(f"******{recipient[-4:]} · {message_status} · {message_sid}")
+                    except (ValueError, HTTPError, URLError, TimeoutError) as exc:
+                        event(cid, "campaign", f"twilio_{channel.lower()}_failed", f"recipient=******{recipient[-4:]}; error_type={type(exc).__name__}", "campaign_agent")
+                        failures.append(f"******{recipient[-4:]} · {str(exc) if isinstance(exc, ValueError) else type(exc).__name__}")
+                if accepted:
+                    st.success(f"Twilio accepted {len(accepted)} of {len(selected_recipients)} {channel} message(s).")
+                    st.code("\n".join(accepted), language=None)
+                if failures:
+                    st.error(f"{len(failures)} {channel} message(s) failed.")
+                    st.code("\n".join(failures), language=None)
         if st.button("Log test campaign preview"):
-            if not (test_recipient.isdigit() and len(test_recipient) == 10):
-                st.error("Enter a 10 digit mobile number.")
+            if not selected_recipients:
+                st.error("Select at least one authorized test recipient.")
             else:
-                event(cid,"campaign","test_preview",f"source={audience}; score={c.campaign_score}; purpose={campaign_meta['purpose']}; channel={channel}; recipient=******{test_recipient[-4:]}; suggested_hour={c.contact_hour}; no message sent", "campaign_agent")
+                masked_recipients = ",".join(f"******{number[-4:]}" for number in selected_recipients)
+                event(cid,"campaign","test_preview",f"source={audience}; score={c.campaign_score}; purpose={campaign_meta['purpose']}; channel={channel}; recipients={masked_recipients}; suggested_hour={c.contact_hour}; no message sent", "campaign_agent")
                 st.success("Test preview logged. No external message was sent.")
         if channel == "Voice bot":
             st.markdown("#### Twilio voice bot POC")
@@ -689,8 +710,10 @@ elif page == "Campaign agent":
             missing_twilio = twilio_configuration_status()
             if missing_twilio:
                 st.warning("Twilio calling is unavailable. Configure " + ", ".join(missing_twilio) + ".")
+            if len(selected_recipients) != 1:
+                st.info("Select exactly one authorized recipient for a Twilio voice-bot call.")
             twilio_confirmed = st.checkbox("I confirm this number is authorized for the Twilio POC call")
-            can_twilio_call = test_recipient == TEST_NUMBER and not missing_twilio and call_window_open() and twilio_confirmed
+            can_twilio_call = len(selected_recipients) == 1 and test_recipient in authorized_recipients and not missing_twilio and call_window_open() and twilio_confirmed
             if st.button("Place Twilio voice bot call", disabled=not can_twilio_call, type="primary"):
                 try:
                     call_sid, call_status = place_twilio_test_call(test_recipient)

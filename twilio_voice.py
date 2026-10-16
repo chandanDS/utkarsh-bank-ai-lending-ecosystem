@@ -36,9 +36,21 @@ def trial_mode():
     return str(value).lower() not in {"false", "0", "no", "off"}
 
 
+def authorized_test_numbers() -> tuple[str, ...]:
+    value = setting("TWILIO_TEST_NUMBERS")
+    candidates = value if isinstance(value, (list, tuple)) else str(value or "").split(",")
+    numbers = tuple(dict.fromkeys(str(number).strip().removeprefix("+91") for number in candidates if str(number).strip()))
+    valid = tuple(number for number in numbers if re.fullmatch(r"[6-9]\d{9}", number))
+    return valid or (TEST_NUMBER,)
+
+
+def is_authorized_test_number(phone: str) -> bool:
+    return phone in authorized_test_numbers()
+
+
 def build_call_request(phone=TEST_NUMBER):
-    if phone != TEST_NUMBER:
-        raise ValueError("POC calls are restricted to the authorized test number.")
+    if not is_authorized_test_number(phone):
+        raise ValueError("POC calls are restricted to the authorized test-number allowlist.")
     missing = configuration_status()
     if missing:
         raise ValueError("Missing Twilio configuration: " + ", ".join(missing))

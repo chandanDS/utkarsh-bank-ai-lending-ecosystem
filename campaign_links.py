@@ -14,8 +14,9 @@ VOICE_SCRIPT = (
 )
 
 
-def launch_links(phone=TEST_NUMBER, message=TEST_MESSAGE):
-    if phone != TEST_NUMBER:
+def launch_links(phone=TEST_NUMBER, message=TEST_MESSAGE, authorized_numbers=None):
+    allowed = set(authorized_numbers or (TEST_NUMBER,))
+    if phone not in allowed:
         raise ValueError("Manual test links are restricted to the configured test number.")
     e164 = "+91" + phone
     return {
