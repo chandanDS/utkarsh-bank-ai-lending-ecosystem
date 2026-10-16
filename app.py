@@ -29,7 +29,7 @@ st.html(f"""
 <style>
 .stApp {{
     background-image:
-        linear-gradient(rgba(247, 249, 252, 0.86), rgba(247, 249, 252, 0.91)),
+        linear-gradient(rgba(247, 249, 252, 0.89), rgba(247, 249, 252, 0.93)),
         url('{OFFICIAL_BACKGROUND_URL}');
     background-size: cover;
     background-position: center;
@@ -49,17 +49,16 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label {{
     border: 1px solid rgba(255, 255, 255, 0.20);
     border-radius: 9px;
     padding: 0.52rem 0.60rem;
-    transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+    transition: background 120ms ease, border-color 120ms ease;
 }}
 section[data-testid="stSidebar"] div[role="radiogroup"] label:hover {{
     background: rgba(255, 255, 255, 0.17);
     border-color: rgba(255, 255, 255, 0.38);
-    transform: translateX(2px);
 }}
 section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) {{
-    background: #F2A15F;
-    border-color: #FFD0A8;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+    background: #E6B084;
+    border-color: #EFC9AA;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }}
 section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) p {{
     color: #2F2154 !important;
@@ -68,17 +67,17 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
 .st-key-brand_header {{
     background: rgba(255, 255, 255, 0.94);
     border: 1px solid rgba(75, 46, 131, 0.20);
-    border-radius: 14px;
-    box-shadow: 0 8px 28px rgba(47, 33, 84, 0.12);
+    border-radius: 10px;
+    box-shadow: 0 4px 16px rgba(47, 33, 84, 0.08);
     padding: 0.75rem 1.15rem;
     margin-bottom: 0.85rem;
 }}
 .st-key-brand_header [data-testid="stImage"] {{
     background: #FFFFFF;
     border: 1px solid rgba(75, 46, 131, 0.22);
-    border-radius: 12px;
-    box-shadow: 0 5px 16px rgba(47, 33, 84, 0.14);
-    padding: 0.85rem 1rem;
+    border-radius: 9px;
+    box-shadow: 0 2px 8px rgba(47, 33, 84, 0.08);
+    padding: 0.80rem 0.95rem;
 }}
 .st-key-brand_header img {{
     filter: drop-shadow(0 2px 5px rgba(47, 33, 84, 0.16));
@@ -86,37 +85,38 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
 .journey-grid {{
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 0.85rem;
+    gap: 0.75rem;
     margin: 0.35rem 0 1rem 0;
 }}
 .journey-card {{
-    min-height: 142px;
-    background: rgba(255, 255, 255, 0.95);
-    border: 1px solid rgba(75, 46, 131, 0.18);
-    border-top: 5px solid var(--journey-accent);
-    border-radius: 12px;
-    box-shadow: 0 6px 20px rgba(47, 33, 84, 0.10);
-    padding: 0.85rem 0.95rem;
+    min-height: 132px;
+    background: rgba(255, 255, 255, 0.91);
+    border: 1px solid rgba(75, 46, 131, 0.14);
+    border-top: 3px solid rgba(75, 46, 131, 0.42);
+    border-radius: 9px;
+    box-shadow: 0 2px 8px rgba(47, 33, 84, 0.06);
+    padding: 0.78rem 0.88rem;
 }}
 .journey-number {{
     display: inline-block;
-    color: #ffffff;
-    background: var(--journey-accent);
+    color: #4B2E83;
+    background: #EEEAF4;
+    border: 1px solid #D9D0E6;
     border-radius: 999px;
-    font-size: 0.76rem;
-    font-weight: 700;
+    font-size: 0.72rem;
+    font-weight: 650;
     letter-spacing: 0.04em;
     padding: 0.18rem 0.55rem;
     margin-bottom: 0.45rem;
 }}
 .journey-card h3 {{
     color: #2F2154;
-    font-size: 1.12rem;
+    font-size: 1.04rem;
     margin: 0 0 0.35rem 0;
 }}
 .journey-card p {{
-    color: #46566D;
-    font-size: 0.88rem;
+    color: #536173;
+    font-size: 0.86rem;
     line-height: 1.38;
     margin: 0;
 }}
