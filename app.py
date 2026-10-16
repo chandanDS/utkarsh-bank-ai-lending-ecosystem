@@ -505,7 +505,10 @@ elif page == "Campaign agent":
                     st.success(f"Twilio accepted the call. Call ID: {call_sid}; status: {call_status}.")
                 except (ValueError, HTTPError, URLError, TimeoutError) as exc:
                     event(cid, "campaign", "twilio_test_call_failed", f"recipient=******{test_recipient[-4:]}; error_type={type(exc).__name__}", "campaign_agent")
-                    st.error(f"Twilio call failed ({type(exc).__name__}). Check the account, caller number, destination permissions and credentials.")
+                    if isinstance(exc, ValueError):
+                        st.error(str(exc))
+                    else:
+                        st.error(f"Twilio call failed ({type(exc).__name__}). Check network connectivity and Twilio service status.")
             st.markdown("#### Airtel IQ test call")
             st.write("The Airtel call flow should play an approved, generic script and record the recipient's response. No customer data from this demo is sent to Airtel.")
             missing = configuration_status()

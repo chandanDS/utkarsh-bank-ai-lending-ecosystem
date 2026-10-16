@@ -7,6 +7,7 @@ import re
 import tomllib
 from pathlib import Path
 from urllib.parse import urlencode
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from xml.sax.saxutils import escape
 
@@ -64,6 +65,20 @@ def place_test_call(phone=TEST_NUMBER):
     if not call_window_open():
         raise ValueError("The configured campaign calling window is closed in India Standard Time.")
     request = build_call_request(phone)
-    with urlopen(request, timeout=15) as response:
-        result = json.load(response)
+    try:
+        with urlopen(request, timeout=15) as response:
+            result = json.load(response)
+    except HTTPError as exc:
+        try:
+            payload = json.loads(exc.read().decode("utf-8", errors="replace"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            payload = {}
+        code = payload.get("code", exc.code)
+        message = payload.get("message", exc.reason)
+        if exc.code == 401 or code == 20003:
+            raise ValueError(
+                "Twilio authentication failed (code 20003). The Auth Token does not match "
+                "the configured Account SID. Update both values from the same Twilio account."
+            ) from exc
+        raise ValueError(f"Twilio rejected the call (code {code}): {message}") from exc
     return result.get("sid"), result.get("status")
