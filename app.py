@@ -28,7 +28,7 @@ st.html(f"""
 <style>
 .stApp {{
     background-image:
-        linear-gradient(rgba(247, 249, 252, 0.94), rgba(247, 249, 252, 0.97)),
+        linear-gradient(rgba(247, 249, 252, 0.86), rgba(247, 249, 252, 0.91)),
         url('{OFFICIAL_BACKGROUND_URL}');
     background-size: cover;
     background-position: center;
@@ -39,6 +39,84 @@ section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {{
 }}
 section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {{
     gap: 0.45rem;
+}}
+section[data-testid="stSidebar"] div[role="radiogroup"] {{
+    gap: 0.42rem;
+}}
+section[data-testid="stSidebar"] div[role="radiogroup"] label {{
+    background: rgba(255, 255, 255, 0.09);
+    border: 1px solid rgba(255, 255, 255, 0.20);
+    border-radius: 9px;
+    padding: 0.52rem 0.60rem;
+    transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+}}
+section[data-testid="stSidebar"] div[role="radiogroup"] label:hover {{
+    background: rgba(255, 255, 255, 0.17);
+    border-color: rgba(255, 255, 255, 0.38);
+    transform: translateX(2px);
+}}
+section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) {{
+    background: #F2A15F;
+    border-color: #FFD0A8;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+}}
+section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) p {{
+    color: #2F2154 !important;
+    font-weight: 750;
+}}
+.st-key-brand_header {{
+    background: rgba(255, 255, 255, 0.94);
+    border: 1px solid rgba(75, 46, 131, 0.20);
+    border-radius: 14px;
+    box-shadow: 0 8px 28px rgba(47, 33, 84, 0.12);
+    padding: 0.75rem 1.15rem;
+    margin-bottom: 0.85rem;
+}}
+.st-key-brand_header img {{
+    filter: drop-shadow(0 3px 7px rgba(47, 33, 84, 0.18));
+}}
+.journey-grid {{
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.85rem;
+    margin: 0.35rem 0 1rem 0;
+}}
+.journey-card {{
+    min-height: 142px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(75, 46, 131, 0.18);
+    border-top: 5px solid var(--journey-accent);
+    border-radius: 12px;
+    box-shadow: 0 6px 20px rgba(47, 33, 84, 0.10);
+    padding: 0.85rem 0.95rem;
+}}
+.journey-number {{
+    display: inline-block;
+    color: #ffffff;
+    background: var(--journey-accent);
+    border-radius: 999px;
+    font-size: 0.76rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 0.18rem 0.55rem;
+    margin-bottom: 0.45rem;
+}}
+.journey-card h3 {{
+    color: #2F2154;
+    font-size: 1.12rem;
+    margin: 0 0 0.35rem 0;
+}}
+.journey-card p {{
+    color: #46566D;
+    font-size: 0.88rem;
+    line-height: 1.38;
+    margin: 0;
+}}
+@media (max-width: 900px) {{
+    .journey-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+}}
+@media (max-width: 560px) {{
+    .journey-grid {{ grid-template-columns: 1fr; }}
 }}
 </style>
 """)
@@ -94,29 +172,36 @@ if current_user["role"] == "BRANCH" and not current_user.get("branch_code"):
     st.error("Your branch account has no branch scope.")
     st.stop()
 
-brand_logo, brand_title = st.columns([1, 4], vertical_alignment="center")
-with brand_logo:
-    st.image(OFFICIAL_LOGO_URL, width=210)
-with brand_title:
-    st.title("Utkarsh Bank AI-Powered Lending Ecosystem")
-    st.caption(
-        "Predict customer needs and risks · Activate governed campaigns · Explore portfolio intelligence"
-    )
+with st.container(key="brand_header"):
+    brand_logo, brand_title = st.columns([1, 4], vertical_alignment="center")
+    with brand_logo:
+        st.image(OFFICIAL_LOGO_URL, width=245)
+    with brand_title:
+        st.title("Utkarsh Bank AI-Powered Lending Ecosystem")
+        st.caption(
+            "Predict customer needs and risks · Activate governed campaigns · Explore portfolio intelligence"
+        )
 
-with st.container(border=True):
-    journey_1, journey_2, journey_3, journey_4 = st.columns(4, gap="medium")
-    with journey_1:
-        st.markdown("**1 · Predict**")
-        st.caption("AI/ML identifies opportunity, risk and next-best action.")
-    with journey_2:
-        st.markdown("**2 · Activate**")
-        st.caption("Campaign Agent converts predictions into governed actions.")
-    with journey_3:
-        st.markdown("**3 · Understand**")
-        st.caption("Conversational BI answers grounded portfolio questions.")
-    with journey_4:
-        st.markdown("**4 · Measure**")
-        st.caption("Executive reporting quantifies conversion and business impact.")
+st.html("""
+<div class="journey-grid" aria-label="AI-powered lending journey">
+  <section class="journey-card" style="--journey-accent:#4B2E83">
+    <span class="journey-number">STAGE 01</span><h3>1. Predict</h3>
+    <p>AI/ML identifies opportunity, risk and next-best action.</p>
+  </section>
+  <section class="journey-card" style="--journey-accent:#E97924">
+    <span class="journey-number">STAGE 02</span><h3>2. Activate</h3>
+    <p>Campaign Agent converts predictions into governed actions.</p>
+  </section>
+  <section class="journey-card" style="--journey-accent:#315CA8">
+    <span class="journey-number">STAGE 03</span><h3>3. Understand</h3>
+    <p>Conversational BI answers grounded portfolio questions.</p>
+  </section>
+  <section class="journey-card" style="--journey-accent:#15803D">
+    <span class="journey-number">STAGE 04</span><h3>4. Measure</h3>
+    <p>Executive reporting quantifies conversion and business impact.</p>
+  </section>
+</div>
+""")
 
 pages = ["Executive Business Impact report", "AI/ML intelligence", "Campaign agent", "Conversational BI"]
 st.sidebar.title("Utkarsh Bank")
@@ -130,7 +215,9 @@ with st.sidebar.container(border=True):
     if st.button("Sign out", icon=":material/logout:", width="stretch"):
         st.session_state.clear()
         st.rerun()
-page = st.sidebar.radio("Demo modules", pages)
+st.sidebar.subheader("Demo modules", icon=":material/apps:")
+st.sidebar.caption("Select a workspace")
+page = st.sidebar.radio("Demo modules", pages, label_visibility="collapsed")
 
 def configured_secret(name, default=""):
     value = os.getenv(name, "")
@@ -223,26 +310,36 @@ elif page == "Executive Business Impact report":
             st.metric("Estimated loss avoided", f"₹{loss_avoided / 10_000_000:,.2f} Cr", border=True)
             st.metric("Portfolio value protected", f"₹{portfolio_protected / 10_000_000:,.2f} Cr", border=True)
 
-        chart_col, table_col = st.columns([2, 3])
-        with chart_col:
-            with st.container(border=True):
-                st.markdown("**Conversion efficiency by use case**")
-                st.bar_chart(impact, x="Use case", y="Conversion efficiency %", horizontal=True)
-        with table_col:
-            with st.container(border=True):
-                st.markdown("**Use-case conversion and impact report**")
-                st.dataframe(
-                    crore_display(impact),
-                    hide_index=True,
-                    width="stretch",
-                    column_config={
-                        "Conversion efficiency %": st.column_config.ProgressColumn(
-                            "Conversion efficiency", min_value=0, max_value=100, format="%.2f%%"
-                        ),
-                        "Contact rate %": st.column_config.NumberColumn("Contact rate", format="%.2f%%"),
-                        "Estimated impact ₹ Cr": st.column_config.NumberColumn("Estimated impact ₹ Cr", format="₹ %.2f"),
-                    },
-                )
+        with st.container(border=True):
+            st.markdown("**Conversion efficiency by use case**")
+            st.bar_chart(impact, x="Use case", y="Conversion efficiency %", horizontal=True)
+
+        with st.container(border=True):
+            st.markdown("### Use-case conversion and business impact table")
+            st.caption("Financial impact is displayed in ₹ crore and highlighted for executive review.")
+            display_impact = crore_display(impact)
+            impact_column = "Estimated impact ₹ Cr"
+            styled_impact = display_impact.style.map(
+                lambda value: "background-color: #FFF2CC; color: #2F2154; font-weight: 700;",
+                subset=[impact_column],
+            )
+            report_height = 42 + (len(display_impact) * 35)
+            st.dataframe(
+                styled_impact,
+                hide_index=True,
+                width="stretch",
+                height=report_height,
+                column_config={
+                    "Use case": st.column_config.TextColumn("AI/ML use case", pinned=True),
+                    "Conversion efficiency %": st.column_config.ProgressColumn(
+                        "Conversion efficiency", min_value=0, max_value=100, format="%.2f%%"
+                    ),
+                    "Contact rate %": st.column_config.NumberColumn("Contact rate", format="%.2f%%"),
+                    impact_column: st.column_config.NumberColumn(
+                        "Business impact (₹ Cr)", format="₹ %.2f", pinned=True
+                    ),
+                },
+            )
         with st.expander("Impact methodology and assumptions", icon=":material/info:"):
             st.markdown("""
         - All records, campaign assignments and outcomes are synthetic and illustrative.
