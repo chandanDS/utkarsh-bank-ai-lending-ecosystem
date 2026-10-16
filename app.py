@@ -211,7 +211,7 @@ st.html("""
 </div>
 """)
 
-pages = ["Executive Business Impact report", "AI/ML intelligence", "Campaign agent", "Conversational BI"]
+pages = ["AI/ML intelligence", "Campaign agent", "Conversational BI", "Executive Business Impact report"]
 st.sidebar.title("Utkarsh Bank")
 st.sidebar.caption("AI-Powered Lending Ecosystem")
 with st.sidebar.container(border=True):
