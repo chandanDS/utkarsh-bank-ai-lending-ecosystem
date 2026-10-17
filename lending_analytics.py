@@ -12,6 +12,123 @@ AI_COLUMNS = [
     "segment", "recommended_product", "recommended_action", "reasons",
 ]
 
+BRANCH_LOCATIONS = {
+    "mumbai": "BR001", "delhi": "BR002", "bengaluru": "BR003",
+    "bangalore": "BR003", "chennai": "BR004", "kolkata": "BR005",
+    "hyderabad": "BR006", "pune": "BR007", "ahmedabad": "BR008",
+    "jaipur": "BR009", "lucknow": "BR010", "kochi": "BR011",
+    "indore": "BR012",
+}
+
+
+def _prediction_output_request(
+    question: str, scoped: pd.DataFrame
+) -> tuple[str, pd.DataFrame, str] | None:
+    """Return governed customer-level AI/ML outputs without bypassing caller scope."""
+    detail_markers = ("list", "show", "data", "record", "output", "customer", "who are")
+    if not any(marker in question for marker in detail_markers):
+        return None
+
+    use_case = None
+    if "early warning" in question or "default prediction" in question:
+        use_case = "default_early_warning"
+    elif "propensity" in question:
+        use_case = "propensity"
+    elif "churn" in question or "attrition" in question:
+        use_case = "churn"
+    elif any(term in question for term in ("cross-sell", "cross sell", "up-sell", "upsell")):
+        use_case = "cross_sell"
+    elif "credit decision" in question or "underwriting" in question:
+        use_case = "credit_decisioning"
+    elif "personalization" in question or "persona" in question:
+        use_case = "personalization"
+    elif "collection" in question:
+        use_case = "collections"
+    elif "next best" in question:
+        use_case = "next_best_offer_action"
+    if use_case is None:
+        return None
+
+    target_code = None
+    branch_match = re.search(r"\b(br\d{3})\b", question)
+    if branch_match:
+        target_code = branch_match.group(1).upper()
+    else:
+        for city, branch_code in BRANCH_LOCATIONS.items():
+            if re.search(rf"\b{re.escape(city)}\b", question):
+                target_code = branch_code
+                break
+
+    result = scoped.copy()
+    if target_code:
+        result = result[result["branch_code"].str.upper() == target_code]
+
+    configs = {
+        "default_early_warning": {
+            "title": "Default & early warning",
+            "filter": lambda frame: frame["default_probability_90d"] >= .45,
+            "sort": ["default_probability_90d", "risk"],
+            "columns": ["customer_id", "name", "branch_code", "city", "product", "customer_segment", "current_account_status", "default_probability_90d", "bureau", "risk", "dpd", "delinquency_events_12m", "utilization", "aa_cashflow", "outstanding"],
+        },
+        "propensity": {
+            "title": "Propensity",
+            "filter": lambda frame: frame["propensity"] >= .60,
+            "sort": ["propensity"],
+            "columns": ["customer_id", "name", "branch_code", "city", "product", "customer_segment", "propensity", "preferred_channel", "contact_hour", "recommended_product"],
+        },
+        "churn": {
+            "title": "Churn",
+            "filter": lambda frame: frame["churn_probability"] >= .65,
+            "sort": ["churn_probability"],
+            "columns": ["customer_id", "name", "branch_code", "city", "product", "customer_segment", "churn_probability", "preferred_channel", "contact_hour"],
+        },
+        "cross_sell": {
+            "title": "Cross-sell / up-sell",
+            "filter": lambda frame: frame["cross_sell_score"] >= .70,
+            "sort": ["cross_sell_score"],
+            "columns": ["customer_id", "name", "branch_code", "city", "product", "cross_sell_score", "recommended_product", "recommended_action", "preferred_channel"],
+        },
+        "credit_decisioning": {
+            "title": "Credit decisioning",
+            "filter": lambda frame: pd.Series(True, index=frame.index),
+            "sort": ["risk"],
+            "columns": ["customer_id", "name", "branch_code", "city", "product", "segment", "bureau", "risk", "requested_amount", "aa_cashflow", "reasons"],
+        },
+        "personalization": {
+            "title": "Personalization",
+            "filter": lambda frame: pd.Series(True, index=frame.index),
+            "sort": ["propensity"],
+            "columns": ["customer_id", "name", "branch_code", "city", "customer_persona", "customer_segment", "product", "recommended_product", "recommended_action", "preferred_channel", "contact_hour"],
+        },
+        "collections": {
+            "title": "Collections",
+            "filter": lambda frame: frame["dpd"] > 0,
+            "sort": ["collection_priority", "dpd"],
+            "columns": ["customer_id", "name", "branch_code", "city", "product", "dpd", "collection_priority", "collection_amount_due", "collection_amount_received", "outstanding"],
+        },
+        "next_best_offer_action": {
+            "title": "Next Best Offer/Action",
+            "filter": lambda frame: pd.Series(True, index=frame.index),
+            "sort": ["propensity"],
+            "columns": ["customer_id", "name", "branch_code", "city", "product", "past_complaint", "complaint_reason", "recommended_product", "recommended_action", "preferred_channel", "contact_hour"],
+        },
+    }
+    config = configs[use_case]
+    result = result[config["filter"](result)].copy()
+    sort_columns = [column for column in config["sort"] if column in result.columns]
+    if sort_columns:
+        result = result.sort_values(sort_columns, ascending=False, kind="stable")
+    result = result[[column for column in config["columns"] if column in result.columns]]
+
+    scope_label = target_code or "the authorized portfolio"
+    if result.empty:
+        answer = f"No authorized {config['title']} prediction records matched for {scope_label}."
+    else:
+        city_values = result["city"].dropna().unique().tolist() if "city" in result else []
+        location = f"{city_values[0]} ({target_code})" if target_code and len(city_values) == 1 else scope_label
+        answer = f"Found {len(result):,} {config['title']} prediction records for {location}."
+    return answer, result, f"ai_ml_output:{use_case}"
+
 
 def enrich_portfolio(df: pd.DataFrame) -> pd.DataFrame:
     result = df.copy()
@@ -279,6 +396,10 @@ def answer_bi(question: str, df: pd.DataFrame) -> tuple[str, pd.DataFrame, str]:
     q = question.lower().strip()
     if not q:
         return "Please enter a lending portfolio question.", pd.DataFrame(), "clarification"
+
+    prediction_output = _prediction_output_request(q, df)
+    if prediction_output is not None:
+        return prediction_output
 
     branch_match = re.search(r"\b(br\d{3})\b", q)
     scoped = df

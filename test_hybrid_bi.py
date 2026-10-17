@@ -44,6 +44,17 @@ class HybridBiTests(unittest.TestCase):
         self.assertTrue(result.route.startswith("deterministic:"))
         self.assertEqual(result.usage["Total"], 0)
 
+    def test_ai_ml_output_query_uses_governed_zero_token_path(self):
+        predictions = self.df.copy()
+        predictions["default_probability_90d"] = [.72, .30]
+        predictions["current_account_status"] = ["Defaulted", "Standard"]
+        result = answer_hybrid_bi(
+            "show default and early warning output for Mumbai branch", predictions
+        )
+        self.assertEqual(result.route, "deterministic:ai_ml_output:default_early_warning")
+        self.assertEqual(result.usage["Total"], 0)
+        self.assertEqual(len(result.data), 1)
+
     def test_complex_query_uses_groq_sql_and_insight(self):
         client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
         result = answer_hybrid_bi("compare average risk by product", self.df, client=client)

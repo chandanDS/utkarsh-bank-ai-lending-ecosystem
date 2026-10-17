@@ -100,6 +100,43 @@ class ConversationalBiTests(unittest.TestCase):
         self.assertGreaterEqual(enriched["default_probability_90d"], .60)
         self.assertGreaterEqual(int(enriched["delinquency_events_12m"]), 0)
 
+    def test_delhi_default_early_warning_returns_prediction_rows(self):
+        source = pd.DataFrame([
+            {
+                "customer_id": "C1", "name": "Aarav Sharma", "branch_code": "BR002",
+                "city": "Delhi", "product": "Personal Loan", "customer_segment": "Salaried",
+                "current_account_status": "Standard", "default_probability_90d": .71,
+                "bureau": 680, "risk": .65, "dpd": 0, "delinquency_events_12m": 0,
+                "utilization": .84, "aa_cashflow": .72, "outstanding": 900_000,
+            },
+            {
+                "customer_id": "C2", "name": "Diya Patel", "branch_code": "BR001",
+                "city": "Mumbai", "product": "Home Loan", "customer_segment": "Salaried",
+                "current_account_status": "Standard", "default_probability_90d": .80,
+                "bureau": 650, "risk": .72, "dpd": 0, "delinquency_events_12m": 1,
+                "utilization": .90, "aa_cashflow": .68, "outstanding": 2_000_000,
+            },
+        ])
+        answer, result, route = answer_bi(
+            "list down the data from default and early warning for Delhi as a branch", source
+        )
+        self.assertEqual(route, "ai_ml_output:default_early_warning")
+        self.assertEqual(result["branch_code"].unique().tolist(), ["BR002"])
+        self.assertTrue((result["default_probability_90d"] >= .45).all())
+        self.assertIn("Delhi (BR002)", answer)
+
+    def test_prediction_output_cannot_broaden_existing_rbac_scope(self):
+        scoped = pd.DataFrame([{
+            "customer_id": "C2", "name": "Diya Patel", "branch_code": "BR001",
+            "city": "Mumbai", "default_probability_90d": .80, "risk": .72,
+        }])
+        answer, result, route = answer_bi(
+            "show default and early warning records for Delhi branch", scoped
+        )
+        self.assertEqual(route, "ai_ml_output:default_early_warning")
+        self.assertTrue(result.empty)
+        self.assertIn("No authorized", answer)
+
 
 if __name__ == "__main__":
     unittest.main()
