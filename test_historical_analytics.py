@@ -166,6 +166,21 @@ class HistoricalAnalyticsTests(unittest.TestCase):
         self.assertEqual(set(result["Driver type"]), {"Product", "Branch"})
         self.assertIn("South region portfolio", answer)
 
+    def test_current_snapshot_queries_are_not_captured_as_historical(self):
+        self.assertIsNone(answer_historical_bi("show total outstanding portfolio", self.history))
+        self.assertIsNone(answer_historical_bi("which branch has lowest collection efficiency", self.history))
+        self.assertIsNone(answer_historical_bi("show churn prediction customers", self.history))
+
+    def test_non_temporal_portfolio_contribution_uses_dynamic_semantic_path(self):
+        self.assertIsNone(answer_historical_bi(
+            "what percentage of portfolio is contributed by each state", self.history
+        ))
+
+    def test_generic_complex_comparison_is_not_assumed_to_be_portfolio_yoy(self):
+        self.assertIsNone(answer_historical_bi(
+            "compare average risk and approval rate by product", self.history
+        ))
+
 
 if __name__ == "__main__":
     unittest.main()

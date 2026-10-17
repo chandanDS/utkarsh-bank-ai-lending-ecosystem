@@ -623,6 +623,12 @@ def answer_bi(question: str, df: pd.DataFrame) -> tuple[str, pd.DataFrame, str]:
     if dpd_match:
         threshold = int(dpd_match.group(1))
         result = scoped[scoped["dpd"] > threshold].sort_values(["dpd", "risk"], ascending=False)
+        detail_columns = [
+            "customer_id", "name", "branch_code", "city", "product", "current_account_status",
+            "dpd", "risk", "default_probability_90d", "bureau", "outstanding",
+            "collection_amount_due", "collection_amount_received", "preferred_channel", "contact_hour",
+        ]
+        result = result[[column for column in detail_columns if column in result.columns]]
         return f"{len(result):,} loans have DPD greater than {threshold} {scope_text}.", result, "delinquency_detail"
 
     if "outstanding" in q or "portfolio" in q:
@@ -634,6 +640,12 @@ def answer_bi(question: str, df: pd.DataFrame) -> tuple[str, pd.DataFrame, str]:
 
     if ("default" in q or "risk" in q) and ("high" in q or "highest" in q):
         result = scoped[scoped["risk"] >= 0.60].sort_values("risk", ascending=False)
+        detail_columns = [
+            "customer_id", "name", "branch_code", "city", "product", "customer_segment",
+            "current_account_status", "default_probability_90d", "risk", "bureau", "dpd",
+            "utilization", "aa_cashflow", "outstanding",
+        ]
+        result = result[[column for column in detail_columns if column in result.columns]]
         return f"{len(result):,} customers are in the high default-risk band {scope_text}.", result, "default_risk"
 
     if "delinquen" in q and "branch" in q:
@@ -651,6 +663,12 @@ def answer_bi(question: str, df: pd.DataFrame) -> tuple[str, pd.DataFrame, str]:
 
     if "eligible" in q and ("personal loan" in q or "personal loans" in q):
         result = scoped[(scoped["recommended_product"] == "Personal Loan") & scoped["segment"].isin(["pre-approved", "pre-qualified"])].sort_values("propensity", ascending=False)
+        detail_columns = [
+            "customer_id", "name", "branch_code", "city", "product", "customer_segment",
+            "segment", "propensity", "bureau", "risk", "requested_amount", "recommended_product",
+            "preferred_channel", "contact_hour",
+        ]
+        result = result[[column for column in detail_columns if column in result.columns]]
         return f"{len(result):,} customers are eligible candidates for a personal-loan offer {scope_text}.", result, "pl_eligibility"
 
     if "cross-sell" in q or "cross sell" in q or "upsell" in q or "up-sell" in q:

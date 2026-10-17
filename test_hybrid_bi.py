@@ -63,6 +63,14 @@ class HybridBiTests(unittest.TestCase):
         self.assertEqual(result.usage["Total"], 0)
         self.assertEqual(len(result.data), 1)
 
+    def test_current_branch_ranking_is_not_misrouted_to_history(self):
+        result = answer_hybrid_bi(
+            "which branch has the lowest collection efficiency",
+            self.df,
+            historical_df=pd.DataFrame([{"month": "2026-09-01"}]),
+        )
+        self.assertEqual(result.route, "deterministic:branch_collection_efficiency")
+
     def test_complex_query_uses_groq_sql_and_insight(self):
         client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
         result = answer_hybrid_bi("compare average risk by product", self.df, client=client)

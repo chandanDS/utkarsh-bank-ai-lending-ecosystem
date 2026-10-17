@@ -208,7 +208,10 @@ def _insight_text(answer: str, metric: str, worsened: bool, negative_text: str |
 
 def answer_historical_bi(question: str, history: pd.DataFrame):
     q = question.lower().strip()
-    markers = ("growth", "driver", "contribut", "portfolio", "month", "quarter", "yoy", "mom", "qoq", "last year", "last quarter", "trend", "new account", "performing", "conversion", "default rate", "churn", "collection efficiency")
+    markers = (
+        "growth", "driver", "drill down", "drilldown", "month", "quarter", "yoy", "mom", "qoq",
+        "last year", "last quarter", "trend", "new account", "performing",
+    )
     if history.empty or not any(marker in q for marker in markers):
         return None
     scoped = _product_filter(q, history)
@@ -234,7 +237,9 @@ def answer_historical_bi(question: str, history: pd.DataFrame):
     elif "cross" in q: metric = "cross_sell_conversion_pct"
     elif "collection" in q: metric = "collection_efficiency_pct"
 
-    asks_portfolio_drilldown = any(term in q for term in ("driver", "contribut", "drill down", "drilldown")) or (
+    asks_portfolio_drilldown = any(term in q for term in ("driver", "drill down", "drilldown")) or (
+        "contribut" in q and any(term in q for term in ("growth", "change", "declin", "increase", "decrease"))
+    ) or (
         "why" in q and "portfolio" in q
     )
     if asks_portfolio_drilldown and metric == "portfolio_amount":
