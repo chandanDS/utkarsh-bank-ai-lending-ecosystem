@@ -298,6 +298,79 @@ def answer_action_recommendation(
     return insight, result, f"action_recommendation:{route}"
 
 
+def answer_default_driver_analysis(
+    question: str, scoped: pd.DataFrame
+) -> tuple[str, pd.DataFrame, str] | None:
+    """Explain observable default-risk signals for an authorized geography."""
+    q = question.lower().strip()
+    asks_reason = any(term in q for term in ("reason", "cause", "driver", "driving"))
+    if "default" not in q or not asks_reason:
+        return None
+
+    target_code = None
+    branch_match = re.search(r"\b(br\d{3})\b", q)
+    if branch_match:
+        target_code = branch_match.group(1).upper()
+    else:
+        target_code = next(
+            (code for city, code in BRANCH_LOCATIONS.items() if re.search(rf"\b{re.escape(city)}\b", q)),
+            None,
+        )
+    working = scoped.copy()
+    if target_code:
+        working = working[working["branch_code"].str.upper() == target_code]
+    if working.empty:
+        return (
+            f"No authorized customer records are available for {target_code or 'the requested scope'}.",
+            pd.DataFrame(), "default_driver_analysis",
+        )
+
+    if "default_probability_90d" in working:
+        risk_pool = working[working["default_probability_90d"] >= .45].copy()
+    else:
+        risk_pool = working[(working["risk"] >= .60) | (working["dpd"] > 30)].copy()
+    if risk_pool.empty:
+        return "No elevated default-risk customers matched the authorized scope.", pd.DataFrame(), "default_driver_analysis"
+
+    delinquency_signal = (
+        risk_pool["delinquency_events_12m"].fillna(0) > 0
+        if "delinquency_events_12m" in risk_pool
+        else risk_pool["delinquencies"].fillna(0) > 0
+    )
+    signals = [
+        ("High credit utilization", risk_pool["utilization"] >= .75, "Utilization is at least 75%."),
+        ("Weak bureau score", risk_pool["bureau"] < 650, "Bureau score is below 650."),
+        ("Cash-flow stress", risk_pool["aa_cashflow"] < .80, "Account-aggregator cash-flow indicator is below 0.80."),
+        ("Prior delinquency", delinquency_signal, "At least one recent delinquency signal is present."),
+        ("Current DPD above 30", risk_pool["dpd"] > 30, "The account is already more than 30 days past due."),
+    ]
+    rows = []
+    for signal, mask, definition in signals:
+        affected = int(mask.sum())
+        rows.append({
+            "Risk signal": signal,
+            "Affected customers": affected,
+            "Share of elevated-risk pool %": round(100 * affected / len(risk_pool), 2),
+            "Definition": definition,
+        })
+    result = pd.DataFrame(rows).sort_values(
+        ["Affected customers", "Risk signal"], ascending=[False, True], kind="stable"
+    )
+    top = result.head(3)
+    drivers = ", ".join(
+        f"{row['Risk signal']} ({int(row['Affected customers']):,}; {row['Share of elevated-risk pool %']:.2f}%)"
+        for _, row in top.iterrows()
+    )
+    city_values = working["city"].dropna().unique().tolist() if "city" in working else []
+    location = f"{city_values[0]} ({target_code})" if target_code and len(city_values) == 1 else (target_code or "the authorized portfolio")
+    answer = (
+        f"{location} has {len(risk_pool):,} customers in the elevated 90-day default-risk pool. "
+        f"The leading observable risk signals are {drivers}. These are associated risk indicators, not proven causal reasons.\n\n"
+        "**Recommended action:** Review the corresponding customers in Default & early warning and use Credit decisioning for policy or underwriting interventions."
+    )
+    return answer, result, "default_driver_analysis"
+
+
 def _recommended_product(row: pd.Series) -> str:
     current = str(row.get("product") or "Personal Loan")
     income = float(row.get("income") or 0)
@@ -517,6 +590,10 @@ def answer_bi(question: str, df: pd.DataFrame) -> tuple[str, pd.DataFrame, str]:
     q = question.lower().strip()
     if not q:
         return "Please enter a lending portfolio question.", pd.DataFrame(), "clarification"
+
+    default_drivers = answer_default_driver_analysis(q, df)
+    if default_drivers is not None:
+        return default_drivers
 
     action_recommendation = answer_action_recommendation(q, df)
     if action_recommendation is not None:

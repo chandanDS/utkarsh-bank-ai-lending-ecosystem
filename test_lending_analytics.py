@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from lending_analytics import answer_action_recommendation, answer_bi, classify_next_best_action, enrich_portfolio
+from lending_analytics import answer_action_recommendation, answer_bi, answer_default_driver_analysis, classify_next_best_action, enrich_portfolio
 
 
 class ConversationalBiTests(unittest.TestCase):
@@ -150,6 +150,20 @@ class ConversationalBiTests(unittest.TestCase):
         self.assertEqual(len(result), 2)
         self.assertTrue((result["dpd"] > 0).all())
         self.assertIn("AI insight", answer)
+
+    def test_default_reason_question_returns_scoped_observable_drivers(self):
+        source = pd.DataFrame([
+            {"customer_id": "D1", "branch_code": "BR002", "city": "Delhi", "default_probability_90d": .72, "risk": .70, "utilization": .90, "bureau": 620, "aa_cashflow": .70, "delinquency_events_12m": 1, "dpd": 0},
+            {"customer_id": "D2", "branch_code": "BR002", "city": "Delhi", "default_probability_90d": .55, "risk": .50, "utilization": .82, "bureau": 700, "aa_cashflow": .95, "delinquency_events_12m": 0, "dpd": 45},
+            {"customer_id": "M1", "branch_code": "BR001", "city": "Mumbai", "default_probability_90d": .90, "risk": .80, "utilization": .95, "bureau": 590, "aa_cashflow": .60, "delinquency_events_12m": 2, "dpd": 60},
+        ])
+        answer, result, route = answer_default_driver_analysis(
+            "what are the reasons for highest default rate in Delhi?", source
+        )
+        self.assertEqual(route, "default_driver_analysis")
+        self.assertIn("Delhi (BR002)", answer)
+        self.assertIn("not proven causal", answer)
+        self.assertEqual(int(result.iloc[0]["Affected customers"]), 2)
 
 
 if __name__ == "__main__":

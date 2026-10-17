@@ -9,7 +9,7 @@ from typing import Any
 
 import pandas as pd
 
-from lending_analytics import answer_action_recommendation, answer_bi, estimate_tokens
+from lending_analytics import answer_action_recommendation, answer_bi, answer_default_driver_analysis, estimate_tokens
 from historical_analytics import answer_historical_bi
 
 
@@ -364,6 +364,10 @@ def answer_hybrid_bi(
             f"I cannot process that request. {guardrail_reason} Ask a banking analytics question using authorized data.",
             pd.DataFrame(), "guardrail:prompt_injection", zero_usage(),
         )
+    default_drivers = answer_default_driver_analysis(question, scoped_df)
+    if default_drivers is not None:
+        answer, data, route = default_drivers
+        return HybridBIResult(answer, data, f"deterministic:{route}", zero_usage())
     recommended_actions = answer_action_recommendation(question, scoped_df)
     if recommended_actions is not None:
         answer, data, route = recommended_actions

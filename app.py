@@ -468,10 +468,6 @@ if page == "Observe":
                     "Default rate",
                     "Customer attrition rate",
                     "Manual underwriting rate",
-                    "Straight-through decision rate",
-                    "Good customer rejection rate",
-                    "Risky customer approval rate",
-                    "Average underwriting turnaround",
                     "Cross-sell conversion rate",
                     "Collection efficiency",
                 ],
@@ -483,10 +479,6 @@ if page == "Observe":
             "Default rate": "Default rate %",
             "Customer attrition rate": "Attrition rate %",
             "Manual underwriting rate": "Manual underwriting %",
-            "Straight-through decision rate": "Straight-through decisions %",
-            "Good customer rejection rate": "Good customer rejection %",
-            "Risky customer approval rate": "Risky customer approval %",
-            "Average underwriting turnaround": "avg_turnaround_hours",
             "Cross-sell conversion rate": "Cross-sell conversion %",
             "Collection efficiency": "Collection efficiency %",
         }[trend_measure_label]
@@ -500,13 +492,35 @@ if page == "Observe":
             y_label=trend_measure_label,
             height=360,
         )
-        unit = "hours" if trend_measure_label == "Average underwriting turnaround" else "% / count / ₹ Cr as labelled"
-        st.caption(f"Showing the latest {trend_period} for {trend_measure_label.lower()} ({unit}). Use Analyze for detailed MoM, QoQ and YoY comparisons.")
+        st.caption(f"Showing the latest {trend_period} for {trend_measure_label.lower()}. Use Analyze for detailed MoM, QoQ and YoY comparisons.")
     with underwriting_tab:
+        account_base = max(float(current["account_count"]), 1)
+        manual_rate = 100 * float(current["manual_reviews"]) / account_base
+        straight_through_rate = 100 - manual_rate
+        good_rejection_rate = 100 * float(current["good_customers_rejected"]) / account_base
+        risky_approval_rate = 100 * float(current["risky_customers_approved"]) / account_base
         under_cols = st.columns(3)
-        under_cols[0].metric("Manual reviews", f"{int(current['manual_reviews']):,}", border=True)
-        under_cols[1].metric("Good customers rejected", f"{int(current['good_customers_rejected']):,}", border=True)
-        under_cols[2].metric("Risky customers approved", f"{int(current['risky_customers_approved']):,}", border=True)
+        under_cols[0].metric("Manual underwriting rate", f"{manual_rate:.2f}%", border=True)
+        under_cols[1].metric("Straight-through decisions", f"{straight_through_rate:.2f}%", border=True)
+        under_cols[2].metric("Average turnaround", f"{float(current['avg_turnaround_hours']):.2f} hours", border=True)
+        quality_cols = st.columns(3)
+        quality_cols[0].metric("Good customers rejected", f"{int(current['good_customers_rejected']):,}", f"{good_rejection_rate:.2f}% of accounts", border=True, delta_color="inverse")
+        quality_cols[1].metric("Risky customers approved", f"{int(current['risky_customers_approved']):,}", f"{risky_approval_rate:.2f}% of accounts", border=True, delta_color="inverse")
+        quality_cols[2].metric("Manual review volume", f"{int(current['manual_reviews']):,}", border=True)
+        underwriting_metric = st.segmented_control(
+            "Underwriting quality trend",
+            ["Manual underwriting", "Straight-through decisions", "Good customer rejection", "Risky customer approval", "Turnaround time"],
+            default="Manual underwriting",
+            key="underwriting_quality_trend",
+        )
+        underwriting_column = {
+            "Manual underwriting": "Manual underwriting %",
+            "Straight-through decisions": "Straight-through decisions %",
+            "Good customer rejection": "Good customer rejection %",
+            "Risky customer approval": "Risky customer approval %",
+            "Turnaround time": "avg_turnaround_hours",
+        }[underwriting_metric]
+        st.line_chart(trend.tail(36), x="month", y=underwriting_column, height=300)
         st.warning(
             "Review Credit decisioning and Default & early-warning outputs. Policy changes require validation and Business Head / Risk approval."
         )
