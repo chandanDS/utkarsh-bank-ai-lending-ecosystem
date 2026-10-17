@@ -548,20 +548,49 @@ if page == "Observe":
         quality_cols[0].metric("Good customers rejected", f"{int(current['good_customers_rejected']):,}", f"{good_rejection_rate:.2f}% of accounts", border=True, delta_color="inverse")
         quality_cols[1].metric("Risky customers approved", f"{int(current['risky_customers_approved']):,}", f"{risky_approval_rate:.2f}% of accounts", border=True, delta_color="inverse")
         quality_cols[2].metric("Manual review volume", f"{int(current['manual_reviews']):,}", border=True)
-        underwriting_metric = st.segmented_control(
-            "Underwriting quality trend",
-            ["Manual underwriting", "Straight-through decisions", "Good customer rejection", "Risky customer approval", "Turnaround time"],
-            default="Manual underwriting",
-            key="underwriting_quality_trend",
-        )
+        st.markdown("#### Underwriting trend by metric")
+        underwriting_control_a, underwriting_control_b = st.columns(2)
+        with underwriting_control_a:
+            underwriting_period = st.segmented_control(
+                "Trend period",
+                ["1 year", "2 years", "3 years"],
+                default="3 years",
+                key="underwriting_trend_period",
+            )
+        with underwriting_control_b:
+            underwriting_metric = st.selectbox(
+                "Metric",
+                [
+                    "Manual underwriting rate",
+                    "Straight-through decision rate",
+                    "Good customer rejection rate",
+                    "Risky customer approval rate",
+                    "Average underwriting turnaround",
+                ],
+                key="underwriting_quality_metric",
+            )
         underwriting_column = {
-            "Manual underwriting": "Manual underwriting %",
-            "Straight-through decisions": "Straight-through decisions %",
-            "Good customer rejection": "Good customer rejection %",
-            "Risky customer approval": "Risky customer approval %",
-            "Turnaround time": "avg_turnaround_hours",
+            "Manual underwriting rate": "Manual underwriting %",
+            "Straight-through decision rate": "Straight-through decisions %",
+            "Good customer rejection rate": "Good customer rejection %",
+            "Risky customer approval rate": "Risky customer approval %",
+            "Average underwriting turnaround": "avg_turnaround_hours",
         }[underwriting_metric]
-        st.line_chart(trend.tail(36), x="month", y=underwriting_column, height=300)
+        underwriting_months = {"1 year": 12, "2 years": 24, "3 years": 36}[underwriting_period]
+        underwriting_visible_trend = trend.tail(underwriting_months)
+        st.line_chart(
+            underwriting_visible_trend,
+            x="month",
+            y=underwriting_column,
+            x_label="Month",
+            y_label=underwriting_metric,
+            height=360,
+        )
+        underwriting_unit = "hours" if underwriting_metric == "Average underwriting turnaround" else "percentage"
+        st.caption(
+            f"Showing the latest {underwriting_period} for {underwriting_metric.lower()} in {underwriting_unit}. "
+            "Use Analyze for detailed MoM, QoQ and YoY investigation."
+        )
         st.warning(
             "Review Credit decisioning and Default & early-warning outputs. Policy changes require validation and Business Head / Risk approval."
         )
