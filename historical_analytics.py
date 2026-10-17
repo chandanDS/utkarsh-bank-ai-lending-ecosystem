@@ -166,6 +166,22 @@ def _product_filter(question: str, history: pd.DataFrame) -> pd.DataFrame:
     return history
 
 
+def _geography_filter(question: str, history: pd.DataFrame) -> tuple[pd.DataFrame, str | None]:
+    """Apply an explicitly named region, city or branch as a scope—not a grouping."""
+    q = question.lower()
+    for region in sorted(history["region"].dropna().astype(str).unique()):
+        if re.search(rf"\b{re.escape(region.lower())}\b", q):
+            return history[history["region"].astype(str).str.casefold() == region.casefold()], f"{region} region"
+    branch_match = re.search(r"\b(br\d{3})\b", q)
+    if branch_match:
+        branch = branch_match.group(1).upper()
+        return history[history["branch_code"].str.upper() == branch], branch
+    for city in sorted(history["city"].dropna().astype(str).unique()):
+        if re.search(rf"\b{re.escape(city.lower())}\b", q):
+            return history[history["city"].astype(str).str.casefold() == city.casefold()], city
+    return history, None
+
+
 def _recommendation(metric: str, worsened: bool) -> str:
     if not worsened:
         return ""
@@ -196,10 +212,13 @@ def answer_historical_bi(question: str, history: pd.DataFrame):
     if history.empty or not any(marker in q for marker in markers):
         return None
     scoped = _product_filter(q, history)
+    scoped, geography_scope = _geography_filter(q, scoped)
+    if scoped.empty:
+        return "No authorized historical records matched the requested geography.", pd.DataFrame(), "historical:empty_scope"
     latest = scoped.month.max()
     if "branch" in q:
         dimension = "branch_code"
-    elif "region" in q:
+    elif "region" in q and geography_scope is None:
         dimension = "region"
     elif "segment" in q:
         dimension = "customer_segment"
@@ -234,8 +253,9 @@ def answer_historical_bi(question: str, history: pd.DataFrame):
                 if net_change
                 else 0.0
             )
+            movement_drivers = driver.nsmallest(5, "Change ₹ Cr") if net_change < 0 else driver.nlargest(5, "Change ₹ Cr")
             driver_frames.append(
-                driver.nlargest(5, "Change ₹ Cr")[
+                movement_drivers[
                     [dimension_name, "portfolio_amount_current", "portfolio_amount_previous", "Change ₹ Cr", "Contribution %"]
                 ].rename(columns={
                     dimension_name: "Driver",
@@ -249,11 +269,14 @@ def answer_historical_bi(question: str, history: pd.DataFrame):
         result = result[["Driver type", "Driver", "Current ₹ Cr", "Previous ₹ Cr", "Change ₹ Cr", "Contribution %"]]
         top_product = result[result["Driver type"] == "Product"].iloc[0]
         top_branch = result[result["Driver type"] == "Branch"].iloc[0]
+        movement = "grew" if growth >= 0 else "declined"
+        scope_prefix = f"{geography_scope} portfolio" if geography_scope else "Portfolio"
         answer = (
-            f"Portfolio amount grew {growth:+.2f}% YoY (₹{previous_total / 10_000_000:,.2f} Cr to "
-            f"₹{current_total / 10_000_000:,.2f} Cr). The leading product driver is {top_product['Driver']} "
-            f"(+₹{top_product['Change ₹ Cr']:,.2f} Cr), and the leading branch driver is {top_branch['Driver']} "
-            f"(+₹{top_branch['Change ₹ Cr']:,.2f} Cr)."
+            f"{scope_prefix} amount {movement} {abs(growth):.2f}% YoY "
+            f"(₹{previous_total / 10_000_000:,.2f} Cr to ₹{current_total / 10_000_000:,.2f} Cr). "
+            f"The leading product driver is {top_product['Driver']} "
+            f"({top_product['Change ₹ Cr']:+,.2f} Cr), and the leading branch driver is {top_branch['Driver']} "
+            f"({top_branch['Change ₹ Cr']:+,.2f} Cr)."
         )
         if growth >= 0:
             answer += "\n\n**AI insight:** Product and branch contributions explain where the measured growth came from; no intervention is recommended."

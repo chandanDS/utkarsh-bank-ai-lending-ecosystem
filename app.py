@@ -408,6 +408,9 @@ if page == "Observe":
         collection_due=("collection_due", "sum"),
         collection_received=("collection_received", "sum"),
         manual_reviews=("manual_reviews", "sum"),
+        good_customers_rejected=("good_customers_rejected", "sum"),
+        risky_customers_approved=("risky_customers_approved", "sum"),
+        avg_turnaround_hours=("avg_turnaround_hours", "mean"),
     )
     trend["Portfolio amount ₹ Cr"] = trend.portfolio_amount / 10_000_000
     trend["Default rate %"] = 100 * trend.default_accounts / trend.account_count.clip(lower=1)
@@ -417,6 +420,9 @@ if page == "Observe":
     trend["Approval rate %"] = 100 * trend.approved / trend.credit_evaluated.clip(lower=1)
     trend["Lead conversion %"] = 100 * trend.disbursed / trend.leads.clip(lower=1)
     trend["Manual underwriting %"] = 100 * trend.manual_reviews / trend.account_count.clip(lower=1)
+    trend["Straight-through decisions %"] = 100 * (trend.account_count - trend.manual_reviews) / trend.account_count.clip(lower=1)
+    trend["Good customer rejection %"] = 100 * trend.good_customers_rejected / trend.account_count.clip(lower=1)
+    trend["Risky customer approval %"] = 100 * trend.risky_customers_approved / trend.account_count.clip(lower=1)
     trend["Cross-sell conversion %"] = 100 * trend.cross_sell_accepted / trend.cross_sell_contacted.clip(lower=1)
     trend["Collection efficiency %"] = 100 * trend.collection_received / trend.collection_due.clip(lower=1)
 
@@ -462,6 +468,10 @@ if page == "Observe":
                     "Default rate",
                     "Customer attrition rate",
                     "Manual underwriting rate",
+                    "Straight-through decision rate",
+                    "Good customer rejection rate",
+                    "Risky customer approval rate",
+                    "Average underwriting turnaround",
                     "Cross-sell conversion rate",
                     "Collection efficiency",
                 ],
@@ -473,6 +483,10 @@ if page == "Observe":
             "Default rate": "Default rate %",
             "Customer attrition rate": "Attrition rate %",
             "Manual underwriting rate": "Manual underwriting %",
+            "Straight-through decision rate": "Straight-through decisions %",
+            "Good customer rejection rate": "Good customer rejection %",
+            "Risky customer approval rate": "Risky customer approval %",
+            "Average underwriting turnaround": "avg_turnaround_hours",
             "Cross-sell conversion rate": "Cross-sell conversion %",
             "Collection efficiency": "Collection efficiency %",
         }[trend_measure_label]
@@ -486,7 +500,8 @@ if page == "Observe":
             y_label=trend_measure_label,
             height=360,
         )
-        st.caption(f"Showing the latest {trend_period} for {trend_measure_label.lower()}. Use Analyze for detailed MoM, QoQ and YoY comparisons.")
+        unit = "hours" if trend_measure_label == "Average underwriting turnaround" else "% / count / ₹ Cr as labelled"
+        st.caption(f"Showing the latest {trend_period} for {trend_measure_label.lower()} ({unit}). Use Analyze for detailed MoM, QoQ and YoY comparisons.")
     with underwriting_tab:
         under_cols = st.columns(3)
         under_cols[0].metric("Manual reviews", f"{int(current['manual_reviews']):,}", border=True)

@@ -127,6 +127,20 @@ class HistoricalAnalyticsTests(unittest.TestCase):
         self.assertEqual(route, "historical:portfolio_amount:yoy")
         self.assertIn("Portfolio Amount", answer)
 
+    def test_south_region_driver_analysis_stays_inside_south_scope(self):
+        scoped_history = self.history.copy()
+        scoped_history.loc[scoped_history["branch_code"] == "BR001", "region"] = "South"
+        answer, result, route = answer_historical_bi(
+            "What are the drivers for declining portfolio growth in South region?",
+            scoped_history,
+        )
+        self.assertEqual(route, "historical:portfolio_amount:drivers")
+        branch_drivers = set(result.loc[result["Driver type"] == "Branch", "Driver"])
+        product_drivers = set(result.loc[result["Driver type"] == "Product", "Driver"])
+        self.assertEqual(branch_drivers, {"BR001"})
+        self.assertEqual(product_drivers, {"Personal Loan"})
+        self.assertIn("South region portfolio", answer)
+
 
 if __name__ == "__main__":
     unittest.main()
