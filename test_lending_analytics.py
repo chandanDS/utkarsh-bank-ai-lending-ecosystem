@@ -23,8 +23,20 @@ class ConversationalBiTests(unittest.TestCase):
     def test_highest_defaulters_returns_one_specific_branch(self):
         self.assert_branch_answer(
             "which branch has highest number of defaulters amongst the bank as whole",
-            "BR001", "branch_default_risk",
+            "BR001", "branch_defaulters",
         )
+
+    def test_defaulters_are_current_dpd_above_30_not_predictive_risk(self):
+        answer, result, route = answer_bi("which branch has the highest defaulters", self.df)
+        self.assertEqual(route, "branch_defaulters")
+        self.assertEqual(int(result.iloc[0]["defaulters"]), 1)
+        self.assertIn("DPD > 30", answer)
+
+    def test_highest_default_risk_remains_predictive(self):
+        answer, result, route = answer_bi("which branch has the highest default risk", self.df)
+        self.assertEqual(route, "branch_default_risk")
+        self.assertEqual(int(result.iloc[0]["high_default_risk_customers"]), 2)
+        self.assertIn("high default-risk", answer)
 
     def test_highest_delinquency(self):
         self.assert_branch_answer("which branch has highest delinquency", "BR001", "branch_delinquency")

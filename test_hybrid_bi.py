@@ -35,7 +35,7 @@ class FakeCompletions:
 class HybridBiTests(unittest.TestCase):
     def setUp(self):
         self.df = pd.DataFrame([
-            {"customer_id": "1", "branch_code": "BR001", "city": "Mumbai", "product": "Home Loan", "risk": .8, "dpd": 30, "outstanding": 100, "collection_amount_due": 10, "collection_amount_received": 5, "segment": "manual-review", "churn_probability": .7, "cross_sell_score": .4, "propensity": .5},
+            {"customer_id": "1", "branch_code": "BR001", "city": "Mumbai", "product": "Home Loan", "risk": .8, "dpd": 60, "outstanding": 100, "collection_amount_due": 10, "collection_amount_received": 5, "segment": "manual-review", "churn_probability": .7, "cross_sell_score": .4, "propensity": .5},
             {"customer_id": "2", "branch_code": "BR001", "city": "Mumbai", "product": "Personal Loan", "risk": .2, "dpd": 0, "outstanding": 200, "collection_amount_due": 0, "collection_amount_received": 0, "segment": "pre-approved", "churn_probability": .2, "cross_sell_score": .8, "propensity": .8},
         ])
 
@@ -139,6 +139,24 @@ class HybridBiTests(unittest.TestCase):
             historical_answer.call_args.args[0],
             "Vehicle Loan growth versus last year",
         )
+
+    def test_dpd_followup_reconciles_to_prior_branch_defaulter_count(self):
+        initial = answer_hybrid_bi("which branch has the highest defaulters", self.df)
+        history = [
+            {"role": "user", "content": "which branch has the highest defaulters"},
+            {
+                "role": "assistant",
+                "content": initial.answer,
+                "data": initial.data.to_dict("records"),
+                "route": initial.route,
+            },
+        ]
+        followup = answer_hybrid_bi("give me detail breakup grouped by DPD", self.df, history)
+        self.assertEqual(followup.route, "deterministic:branch_defaulter_dpd_breakdown")
+        self.assertTrue((followup.data["dpd"] > 30).all())
+        self.assertEqual(int(followup.data["customer_count"].sum()), 1)
+        self.assertIn("reconciles to 1", followup.answer)
+        self.assertEqual(followup.usage["Total"], 0)
 
 
 if __name__ == "__main__":

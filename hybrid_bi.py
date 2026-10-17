@@ -145,6 +145,72 @@ def _contextualize_historical_question(
     return f"{question} Previous user scope: {previous_user_question}"
 
 
+def _contextual_defaulter_dpd_breakdown(
+    question: str,
+    scoped_df: pd.DataFrame,
+    history: list[dict[str, Any]] | None,
+) -> HybridBIResult | None:
+    """Reconcile a DPD follow-up to the prior branch-defaulter result."""
+    normalized = question.lower().strip()
+    asks_dpd_breakdown = "dpd" in normalized and any(
+        marker in normalized for marker in ("group", "break", "bucket", "detail", "split")
+    )
+    if not history or not asks_dpd_breakdown:
+        return None
+    previous_answer = next(
+        (
+            message
+            for message in reversed(history)
+            if message.get("role") == "assistant"
+            and str(message.get("route", "")).removeprefix("deterministic:") == "branch_defaulters"
+        ),
+        None,
+    )
+    if previous_answer is None:
+        return None
+    previous_rows = previous_answer.get("data") or []
+    branch_code = str(previous_rows[0].get("branch_code", "")).upper() if previous_rows else ""
+    if not branch_code:
+        branch_match = re.search(r"\bBR\d{3}\b", str(previous_answer.get("content", "")), re.IGNORECASE)
+        branch_code = branch_match.group(0).upper() if branch_match else ""
+    if not branch_code:
+        return None
+    defaulters = scoped_df[
+        (scoped_df["branch_code"].str.upper() == branch_code) & (scoped_df["dpd"] > 30)
+    ].copy()
+    if defaulters.empty:
+        return HybridBIResult(
+            f"No defaulters with DPD greater than 30 are available for {branch_code}.",
+            pd.DataFrame(),
+            "deterministic:branch_defaulter_dpd_breakdown",
+            zero_usage(),
+        )
+    result = defaulters.groupby("dpd", as_index=False).agg(
+        customer_count=("customer_id", "count"),
+        outstanding=("outstanding", "sum"),
+        collection_due=("collection_amount_due", "sum"),
+        collection_received=("collection_amount_received", "sum"),
+    ).sort_values("dpd")
+    collection_due = result["collection_due"].where(result["collection_due"].ne(0))
+    result["collection_efficiency_pct"] = (
+        100 * result["collection_received"] / collection_due
+    ).round(2)
+    buckets = ", ".join(
+        f"DPD {int(row.dpd)}: {int(row.customer_count):,}"
+        for row in result.itertuples(index=False)
+    )
+    answer = (
+        f"{branch_code} has {len(defaulters):,} defaulters with DPD greater than 30. "
+        f"DPD breakup — {buckets}. The bucket total reconciles to {len(defaulters):,}."
+    )
+    return HybridBIResult(
+        answer,
+        result,
+        "deterministic:branch_defaulter_dpd_breakdown",
+        zero_usage(),
+    )
+
+
 def _usage_value(usage: Any, name: str) -> int:
     return int(getattr(usage, name, 0) or 0) if usage is not None else 0
 
@@ -277,6 +343,9 @@ def answer_hybrid_bi(
     insight_model: str = DEFAULT_INSIGHT_MODEL,
     client: Any = None,
 ) -> HybridBIResult:
+    contextual_breakdown = _contextual_defaulter_dpd_breakdown(question, scoped_df, history)
+    if contextual_breakdown is not None:
+        return contextual_breakdown
     if historical_df is not None:
         historical_question = _contextualize_historical_question(question, history)
         historical_result = answer_historical_bi(historical_question, historical_df)

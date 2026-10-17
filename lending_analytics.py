@@ -146,7 +146,15 @@ def _branch_ranking(question: str, scoped: pd.DataFrame) -> tuple[str, pd.DataFr
     grouped = scoped.groupby(["branch_code", "city"], as_index=False)
     metric_label: str
     route: str
-    if any(term in question for term in ("default", "defaulter", "risk")):
+    if any(term in question for term in ("defaulter", "defaulted")) and "risk" not in question:
+        result = grouped.agg(
+            defaulters=("dpd", lambda values: int((values > 30).sum())),
+            average_dpd=("dpd", lambda values: float(values[values > 30].mean()) if (values > 30).any() else 0.0),
+        )
+        metric = "defaulters"
+        metric_label = "defaulters (DPD > 30)"
+        route = "branch_defaulters"
+    elif any(term in question for term in ("default risk", "high risk", "risk")):
         result = grouped.agg(
             high_default_risk_customers=("risk", lambda values: int((values >= 0.60).sum())),
             average_default_risk=("risk", "mean"),
