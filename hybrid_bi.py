@@ -9,7 +9,7 @@ from typing import Any
 
 import pandas as pd
 
-from lending_analytics import answer_bi, estimate_tokens
+from lending_analytics import answer_action_recommendation, answer_bi, estimate_tokens
 from historical_analytics import answer_historical_bi
 
 
@@ -51,6 +51,21 @@ FORBIDDEN_SQL = re.compile(
     r"\b(insert|update|delete|drop|alter|create|attach|detach|pragma|replace|truncate|vacuum|reindex)\b",
     re.IGNORECASE,
 )
+
+PROMPT_INJECTION_PATTERNS = (
+    re.compile(r"\bignore\s+(all\s+)?(previous|prior|above)\s+(instructions?|prompts?)\b", re.I),
+    re.compile(r"\b(reveal|show|print|repeat|leak)\s+(the\s+)?(system|developer|hidden)\s+(prompt|instructions?)\b", re.I),
+    re.compile(r"\b(bypass|disable|override|evade)\s+(the\s+)?(guardrails?|safety|rbac|authorization)\b", re.I),
+    re.compile(r"\b(jailbreak|developer mode|do anything now)\b", re.I),
+)
+
+
+def prompt_injection_reason(question: str) -> str | None:
+    if len(question) > 2_000:
+        return "Question exceeds the permitted length."
+    if any(pattern.search(question) for pattern in PROMPT_INJECTION_PATTERNS):
+        return "Prompt-injection pattern detected."
+    return None
 
 
 @dataclass
@@ -343,6 +358,16 @@ def answer_hybrid_bi(
     insight_model: str = DEFAULT_INSIGHT_MODEL,
     client: Any = None,
 ) -> HybridBIResult:
+    guardrail_reason = prompt_injection_reason(question)
+    if guardrail_reason:
+        return HybridBIResult(
+            f"I cannot process that request. {guardrail_reason} Ask a banking analytics question using authorized data.",
+            pd.DataFrame(), "guardrail:prompt_injection", zero_usage(),
+        )
+    recommended_actions = answer_action_recommendation(question, scoped_df)
+    if recommended_actions is not None:
+        answer, data, route = recommended_actions
+        return HybridBIResult(answer, data, f"deterministic:{route}", zero_usage())
     contextual_breakdown = _contextual_defaulter_dpd_breakdown(question, scoped_df, history)
     if contextual_breakdown is not None:
         return contextual_breakdown

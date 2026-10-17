@@ -169,12 +169,133 @@ def enrich_portfolio(df: pd.DataFrame) -> pd.DataFrame:
         + cashflow_pressure * 0.10
         + (result["delinquency_events_12m"].clip(0, 3) / 3) * 0.05
     ).clip(0.03, 0.96).round(3)
+    safe_income = pd.to_numeric(result["income"], errors="coerce").replace(0, pd.NA)
+    requested_amount = pd.to_numeric(
+        result.get("requested_amount", pd.Series(0, index=result.index)), errors="coerce"
+    ).fillna(0)
+    kyc_complete = pd.to_numeric(
+        result.get("kyc", pd.Series(0, index=result.index)), errors="coerce"
+    ).fillna(0).eq(1)
+    result["foir_pct"] = (100 * result["current_emi"] / safe_income).fillna(0).clip(0, 200).round(2)
+    result["requested_to_annual_income"] = (
+        requested_amount / (safe_income * 12)
+    ).fillna(0).clip(0, 10).round(2)
+    result["decision_confidence"] = (
+        0.55
+        + (result["bureau"] >= 720).astype(float) * .12
+        + (result["foir_pct"] <= 45).astype(float) * .10
+        + (result["aa_cashflow"] >= .90).astype(float) * .10
+        + kyc_complete.astype(float) * .08
+        - (result["dpd"] > 30).astype(float) * .20
+    ).clip(.35, .95).round(3)
+    result["policy_exception"] = result.apply(_policy_exception, axis=1)
+    result["underwriting_recommendation"] = result.apply(_underwriting_recommendation, axis=1)
     result["recommended_product"] = result.apply(_recommended_product, axis=1)
     result["customer_persona"] = result.apply(_customer_persona, axis=1)
     complaint_details = result.apply(_complaint_recommendation, axis=1, result_type="expand")
     complaint_details.columns = ["past_complaint", "complaint_reason", "recommended_action"]
     result[["past_complaint", "complaint_reason", "recommended_action"]] = complaint_details
     return result
+
+
+def _policy_exception(row: pd.Series) -> str:
+    exceptions = []
+    if float(row.get("bureau") or 0) < 650:
+        exceptions.append("Low bureau score")
+    if float(row.get("foir_pct") or 0) > 50:
+        exceptions.append("High FOIR")
+    if float(row.get("aa_cashflow") or 0) < .80:
+        exceptions.append("Weak cash-flow signal")
+    if int(row.get("dpd") or 0) > 30:
+        exceptions.append("DPD above 30")
+    if int(row.get("kyc") or 0) != 1:
+        exceptions.append("KYC incomplete")
+    return "; ".join(exceptions) if exceptions else "No material exception"
+
+
+def _underwriting_recommendation(row: pd.Series) -> str:
+    if int(row.get("dpd") or 0) > 30 or float(row.get("risk") or 0) >= .70:
+        return "Risk review before decision"
+    if str(row.get("policy_exception")) != "No material exception":
+        return "Manual validation of flagged exception"
+    if str(row.get("segment")) in {"pre-approved", "pre-qualified"}:
+        return "Eligible for straight-through policy validation"
+    return "Complete standard underwriting review"
+
+
+def answer_action_recommendation(
+    question: str, scoped: pd.DataFrame
+) -> tuple[str, pd.DataFrame, str] | None:
+    """Return a grounded customer action queue for adverse-metric recommendations."""
+    q = question.lower().strip()
+    asks_action = any(term in q for term in (
+        "recommend", "improve", "increase", "reduce", "what should", "how can", "action"
+    ))
+    if not asks_action or scoped.empty:
+        return None
+
+    target_code = None
+    branch_match = re.search(r"\b(br\d{3})\b", q)
+    if branch_match:
+        target_code = branch_match.group(1).upper()
+    else:
+        target_code = next(
+            (code for city, code in BRANCH_LOCATIONS.items() if re.search(rf"\b{re.escape(city)}\b", q)),
+            None,
+        )
+    working = scoped.copy()
+    if target_code:
+        working = working[working["branch_code"].str.upper() == target_code]
+    scope_label = target_code or "the authorized portfolio"
+
+    if "collection" in q:
+        result = working[working["dpd"] > 0].sort_values(
+            ["collection_priority", "dpd", "collection_amount_due"], ascending=False
+        )
+        columns = ["customer_id", "name", "branch_code", "city", "product", "dpd", "collection_priority", "collection_amount_due", "collection_amount_received", "outstanding", "preferred_channel", "contact_hour"]
+        insight = (
+            f"**AI insight:** Prioritize the {len(result):,} overdue customers below by collection priority and DPD. "
+            "Contact them through their preferred channel, beginning with high dues and weak recovery, to improve collection efficiency."
+        )
+        route = "collection_efficiency"
+    elif "default" in q or "early warning" in q or "credit risk" in q:
+        result = working[working["default_probability_90d"] >= .45].sort_values(
+            ["default_probability_90d", "risk"], ascending=False
+        )
+        columns = ["customer_id", "name", "branch_code", "city", "product", "current_account_status", "default_probability_90d", "risk", "bureau", "dpd", "delinquency_events_12m", "utilization", "aa_cashflow", "outstanding"]
+        insight = (
+            f"**AI insight:** Review the {len(result):,} customers below through Default & early warning and Credit decisioning. "
+            "Prioritize high predicted risk while distinguishing currently standard customers from already delinquent accounts."
+        )
+        route = "default_prediction"
+    elif "attrition" in q or "churn" in q or "retention" in q:
+        result = working[working["churn_probability"] >= .65].sort_values(
+            ["churn_probability", "propensity"], ascending=False
+        )
+        columns = ["customer_id", "name", "branch_code", "city", "product", "customer_segment", "churn_probability", "past_complaint", "complaint_reason", "recommended_action", "preferred_channel", "contact_hour"]
+        insight = (
+            f"**AI insight:** Reach out to the {len(result):,} high-attrition-risk customers below. "
+            "Use the Churn output, complaint context and preferred channel to resolve service friction before product outreach."
+        )
+        route = "attrition"
+    elif any(term in q for term in ("campaign", "lead conversion", "conversion efficiency", "response rate")):
+        result = working[
+            (working["consent"] == 1) & (working["response"] == 0) & (working["propensity"] >= .60)
+        ].sort_values(["propensity", "cross_sell_score"], ascending=False)
+        columns = ["customer_id", "name", "branch_code", "city", "product", "propensity", "cross_sell_score", "recommended_product", "preferred_channel", "contact_hour", "consent"]
+        insight = (
+            f"**AI insight:** Activate the {len(result):,} consented, unconverted customers below through the Campaign Agent. "
+            "Sequence outreach by propensity and use each customer's recommended product, preferred channel and contact time."
+        )
+        route = "campaign_efficiency"
+    else:
+        return None
+
+    available = [column for column in columns if column in result.columns]
+    result = result[available].copy()
+    if result.empty:
+        insight = f"No authorized action candidates matched for {scope_label}."
+    return insight, result, f"action_recommendation:{route}"
 
 
 def _recommended_product(row: pd.Series) -> str:
@@ -396,6 +517,10 @@ def answer_bi(question: str, df: pd.DataFrame) -> tuple[str, pd.DataFrame, str]:
     q = question.lower().strip()
     if not q:
         return "Please enter a lending portfolio question.", pd.DataFrame(), "clarification"
+
+    action_recommendation = answer_action_recommendation(q, df)
+    if action_recommendation is not None:
+        return action_recommendation
 
     prediction_output = _prediction_output_request(q, df)
     if prediction_output is not None:

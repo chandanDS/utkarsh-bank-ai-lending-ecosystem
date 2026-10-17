@@ -752,7 +752,7 @@ elif page == "AI/ML intelligence":
             "contact_hour": st.column_config.NumberColumn("Preferred contact time", format="%d:00"),
         })
     with tabs[4]:
-        st.caption("Credit eligibility and policy outcome with the principal underwriting signals and reason codes.")
+        st.caption("Credit eligibility, affordability, policy exceptions and explainable underwriting recommendations.")
         decision_rank = {
             "pre-approved": 0,
             "pre-qualified": 1,
@@ -767,10 +767,13 @@ elif page == "AI/ML intelligence":
             st.metric("Pre-approved / pre-qualified", f"{int(view.segment.isin(['pre-approved', 'pre-qualified']).sum()):,}", border=True)
             st.metric("Manual review / underwriting", f"{int(view.segment.isin(['manual-review', 'underwriting']).sum()):,}", border=True)
             st.metric("Declined", f"{int((view.segment == 'decline').sum()):,}", border=True)
+            st.metric("Policy-clear", f"{int((view.policy_exception == 'No material exception').sum()):,}", border=True)
         decision_columns = [
-            "customer_id", "name", "branch_code", "city", "product", "bureau", "risk",
-            "utilization", "delinquencies", "aa_cashflow", "kyc", "segment", "amount",
-            "rate", "reasons",
+            "customer_id", "name", "branch_code", "city", "product", "income",
+            "requested_amount", "current_emi", "foir_pct", "requested_to_annual_income",
+            "bureau", "risk", "default_probability_90d", "utilization", "delinquencies",
+            "aa_cashflow", "kyc", "segment", "decision_confidence", "policy_exception",
+            "underwriting_recommendation", "amount", "rate", "reasons",
         ]
         st.dataframe(
             crore_display(view[decision_columns].head(500)),
@@ -781,6 +784,12 @@ elif page == "AI/ML intelligence":
                     "Credit decision outcome",
                     help="Policy result: pre-approved, pre-qualified, underwriting/manual review or decline.",
                 ),
+                "foir_pct": st.column_config.NumberColumn("FOIR", format="%.2f%%", help="Current EMI divided by monthly income."),
+                "requested_to_annual_income": st.column_config.NumberColumn("Requested / annual income", format="%.2fx"),
+                "default_probability_90d": st.column_config.NumberColumn("90-day default probability", format="percent"),
+                "decision_confidence": st.column_config.ProgressColumn("Decision confidence", min_value=0, max_value=1, format="percent"),
+                "policy_exception": st.column_config.TextColumn("Policy exception"),
+                "underwriting_recommendation": st.column_config.TextColumn("Underwriting recommendation", pinned=True),
             },
         )
     with tabs[5]:

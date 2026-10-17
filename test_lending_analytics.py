@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from lending_analytics import answer_bi, classify_next_best_action, enrich_portfolio
+from lending_analytics import answer_action_recommendation, answer_bi, classify_next_best_action, enrich_portfolio
 
 
 class ConversationalBiTests(unittest.TestCase):
@@ -136,6 +136,20 @@ class ConversationalBiTests(unittest.TestCase):
         self.assertEqual(route, "ai_ml_output:default_early_warning")
         self.assertTrue(result.empty)
         self.assertIn("No authorized", answer)
+
+    def test_collection_recommendation_returns_customer_action_queue(self):
+        portfolio = self.df.copy()
+        portfolio["collection_priority"] = [.90, .55, .10]
+        portfolio["name"] = ["A", "B", "C"]
+        portfolio["preferred_channel"] = "SMS"
+        portfolio["contact_hour"] = 11
+        answer, result, route = answer_action_recommendation(
+            "recommend how to improve collection efficiency", portfolio
+        )
+        self.assertEqual(route, "action_recommendation:collection_efficiency")
+        self.assertEqual(len(result), 2)
+        self.assertTrue((result["dpd"] > 0).all())
+        self.assertIn("AI insight", answer)
 
 
 if __name__ == "__main__":
