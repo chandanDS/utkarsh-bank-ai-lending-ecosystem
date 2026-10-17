@@ -234,7 +234,10 @@ def answer_historical_bi(question: str, history: pd.DataFrame):
     elif "cross" in q: metric = "cross_sell_conversion_pct"
     elif "collection" in q: metric = "collection_efficiency_pct"
 
-    if ("driver" in q or "contribut" in q) and metric == "portfolio_amount":
+    asks_portfolio_drilldown = any(term in q for term in ("driver", "contribut", "drill down", "drilldown")) or (
+        "why" in q and "portfolio" in q
+    )
+    if asks_portfolio_drilldown and metric == "portfolio_amount":
         previous_month = latest - pd.DateOffset(years=1)
         current_total = float(_aggregate(scoped, [latest]).iloc[0]["portfolio_amount"])
         previous_total = float(_aggregate(scoped, [previous_month]).iloc[0]["portfolio_amount"])
@@ -323,6 +326,7 @@ def answer_historical_bi(question: str, history: pd.DataFrame):
     previous = _aggregate(scoped, previous_months, dimension)
     if dimension:
         result = current.merge(previous, on=dimension, suffixes=("_current", "_previous"))
+        result["absolute_change"] = result[f"{metric}_current"] - result[f"{metric}_previous"]
         result["growth_pct"] = 100 * (result[f"{metric}_current"] - result[f"{metric}_previous"]) / result[f"{metric}_previous"].replace(0, pd.NA)
         ascending = any(word in q for word in ("lowest", "declining", "least"))
         singular_ranking = any(word in q for word in ("highest", "lowest", "fastest", "most", "least", "best", "worst"))
@@ -331,6 +335,39 @@ def answer_historical_bi(question: str, history: pd.DataFrame):
         top = result.iloc[0]
         answer = f"{top[dimension]} has the {'lowest' if ascending else 'highest'} {label} change in {metric.replace('_', ' ')}: {top.growth_pct:+.2f}%."
         worsened = (metric in {"default_rate_pct", "churn_rate_pct"} and top.growth_pct > 0) or (metric not in {"default_rate_pct", "churn_rate_pct"} and top.growth_pct < 0)
+        dimension_label = {
+            "branch_code": "Branch",
+            "region": "Region",
+            "customer_segment": "Customer segment",
+            "product": "Product",
+        }.get(dimension, dimension.replace("_", " ").title())
+        if metric.endswith("_pct"):
+            display_result = result[[dimension, f"{metric}_current", f"{metric}_previous", "absolute_change", "growth_pct"]].rename(columns={
+                dimension: dimension_label,
+                f"{metric}_current": "Current %",
+                f"{metric}_previous": "Previous %",
+                "absolute_change": "Change pp",
+                "growth_pct": "Change %",
+            })
+        elif metric == "portfolio_amount":
+            display_result = result[[dimension, f"{metric}_current", f"{metric}_previous", "absolute_change", "growth_pct"]].rename(columns={
+                dimension: dimension_label,
+                f"{metric}_current": "Current ₹ Cr",
+                f"{metric}_previous": "Previous ₹ Cr",
+                "absolute_change": "Change ₹ Cr",
+                "growth_pct": "Change %",
+            })
+            for column in ("Current ₹ Cr", "Previous ₹ Cr", "Change ₹ Cr"):
+                display_result[column] = display_result[column] / 10_000_000
+        else:
+            display_result = result[[dimension, f"{metric}_current", f"{metric}_previous", "absolute_change", "growth_pct"]].rename(columns={
+                dimension: dimension_label,
+                f"{metric}_current": "Current accounts",
+                f"{metric}_previous": "Previous accounts",
+                "absolute_change": "Change accounts",
+                "growth_pct": "Change %",
+            })
+        result = display_result
     else:
         c, p = current.iloc[0], previous.iloc[0]
         current_value, previous_value = float(c[metric]), float(p[metric])

@@ -141,6 +141,31 @@ class HistoricalAnalyticsTests(unittest.TestCase):
         self.assertEqual(product_drivers, {"Personal Loan"})
         self.assertIn("South region portfolio", answer)
 
+    def test_default_rate_by_branch_returns_only_requested_columns(self):
+        _, result, _ = answer_historical_bi("default-rate YoY by branch", self.history)
+        self.assertEqual(
+            result.columns.tolist(),
+            ["Branch", "Current %", "Previous %", "Change pp", "Change %"],
+        )
+
+    def test_new_accounts_by_product_returns_compact_comparison(self):
+        _, result, _ = answer_historical_bi("new accounts MoM by product", self.history)
+        self.assertEqual(
+            result.columns.tolist(),
+            ["Product", "Current accounts", "Previous accounts", "Change accounts", "Change %"],
+        )
+
+    def test_south_portfolio_drilldown_returns_product_and_branch_drivers(self):
+        scoped_history = self.history.copy()
+        scoped_history.loc[scoped_history["branch_code"] == "BR001", "region"] = "South"
+        answer, result, route = answer_historical_bi(
+            "give me drill down for South region portfolio to understand why portfolio is declining",
+            scoped_history,
+        )
+        self.assertEqual(route, "historical:portfolio_amount:drivers")
+        self.assertEqual(set(result["Driver type"]), {"Product", "Branch"})
+        self.assertIn("South region portfolio", answer)
+
 
 if __name__ == "__main__":
     unittest.main()

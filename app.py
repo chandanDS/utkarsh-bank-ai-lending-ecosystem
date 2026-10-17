@@ -54,7 +54,36 @@ section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {{
     padding-bottom: 0.30rem;
 }}
 section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {{
-    gap: 0.22rem;
+    gap: 0.30rem;
+}}
+.st-key-sidebar_brand {{
+    margin: 0.10rem 0 0.38rem;
+    padding: 0.48rem 0.68rem 0.42rem;
+    background: linear-gradient(90deg, rgba(230, 176, 132, 0.20), rgba(255, 255, 255, 0.06));
+    border-left: 3px solid #E6B084;
+    border-radius: 7px;
+}}
+.st-key-sidebar_brand h3 {{
+    margin: 0 !important;
+    color: #FFF8F1 !important;
+    font-size: 1.08rem !important;
+    font-weight: 720 !important;
+    letter-spacing: 0.015em;
+}}
+.st-key-sidebar_modules {{
+    margin-top: 0.22rem;
+    margin-bottom: 0.34rem;
+}}
+.st-key-sidebar_modules h2 {{
+    margin: 0 0 0.28rem !important;
+    padding: 0.30rem 0.52rem;
+    color: #FFF8F1 !important;
+    background: rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid rgba(230, 176, 132, 0.48);
+    border-radius: 6px 6px 2px 2px;
+    font-size: 0.94rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.02em;
 }}
 section[data-testid="stSidebar"] div[role="radiogroup"] {{
     gap: 0.28rem;
@@ -88,13 +117,23 @@ section[data-testid="stSidebar"] [data-testid="stTable"] td {{
     line-height: 1.14;
 }}
 .st-key-groq_settings_section {{
-    margin-top: 0.35rem;
-    margin-bottom: 0.45rem;
+    margin-top: 0.48rem;
+    margin-bottom: 0.55rem;
+}}
+.st-key-groq_settings_section [data-testid="stExpander"] {{
+    border-color: rgba(230, 176, 132, 0.34);
+    background: rgba(255, 255, 255, 0.045);
 }}
 .st-key-token_usage_panel {{
-    margin-top: 0.35rem;
-    padding-top: 0.40rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.22);
+    margin-top: 0.48rem;
+    padding-top: 0.52rem;
+    border-top: 1px solid rgba(230, 176, 132, 0.42);
+}}
+.st-key-token_usage_panel h4 {{
+    color: #FFF8F1 !important;
+    font-size: 0.94rem !important;
+    letter-spacing: 0.02em;
+    margin-bottom: 0.28rem !important;
 }}
 [data-testid="stDataFrame"] [role="columnheader"] {{
     justify-content: center;
@@ -276,7 +315,8 @@ st.html("""
 """)
 
 pages = ["Observe", "Analyze", "AI/ML intelligence", "Campaign agent", "Executive Business Impact report"]
-st.sidebar.markdown("### Utkarsh Bank")
+with st.sidebar.container(key="sidebar_brand"):
+    st.markdown("### Utkarsh Bank")
 active_scope = "All branches" if current_user["role"] == "HO" else current_user["branch_code"]
 with st.sidebar.container(border=True):
     role_label = "Head Office" if current_user["role"] == "HO" else "Branch user"
@@ -285,10 +325,11 @@ with st.sidebar.container(border=True):
     if st.button("Sign out", icon=":material/logout:", width="stretch"):
         st.session_state.clear()
         st.rerun()
-st.sidebar.subheader("Demo modules", icon=":material/apps:")
-if st.session_state.get("module_page") == "Conversational BI":
-    st.session_state.module_page = "Analyze"
-page = st.sidebar.radio("Demo modules", pages, label_visibility="collapsed", key="module_page")
+with st.sidebar.container(key="sidebar_modules"):
+    st.subheader("Demo modules", icon=":material/apps:")
+    if st.session_state.get("module_page") == "Conversational BI":
+        st.session_state.module_page = "Analyze"
+    page = st.radio("Demo modules", pages, label_visibility="collapsed", key="module_page")
 
 def configured_secret(name, default=""):
     value = os.getenv(name, "")
