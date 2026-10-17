@@ -121,6 +121,30 @@ def _history_text(history: list[dict[str, Any]] | None) -> str:
     return "\n".join(compact) or "None"
 
 
+def _contextualize_historical_question(
+    question: str, history: list[dict[str, Any]] | None
+) -> str:
+    """Carry the prior user scope into short referential historical follow-ups."""
+    normalized = question.lower().strip()
+    referential = bool(
+        re.search(r"\b(this|that|these|those|its|same|above|previous)\b", normalized)
+    )
+    short_driver_followup = "driver" in normalized and len(normalized.split()) <= 9
+    if not history or not (referential or short_driver_followup):
+        return question
+    previous_user_question = next(
+        (
+            str(message.get("content", "")).strip()
+            for message in reversed(history)
+            if message.get("role") == "user" and str(message.get("content", "")).strip()
+        ),
+        "",
+    )
+    if not previous_user_question:
+        return question
+    return f"{question} Previous user scope: {previous_user_question}"
+
+
 def _usage_value(usage: Any, name: str) -> int:
     return int(getattr(usage, name, 0) or 0) if usage is not None else 0
 
@@ -254,7 +278,8 @@ def answer_hybrid_bi(
     client: Any = None,
 ) -> HybridBIResult:
     if historical_df is not None:
-        historical_result = answer_historical_bi(question, historical_df)
+        historical_question = _contextualize_historical_question(question, history)
+        historical_result = answer_historical_bi(historical_question, historical_df)
         if historical_result is not None:
             answer, data, route = historical_result
             return HybridBIResult(answer, data, route, zero_usage())

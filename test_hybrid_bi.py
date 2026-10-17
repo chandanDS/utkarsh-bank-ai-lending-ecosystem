@@ -1,6 +1,7 @@
 import json
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -102,6 +103,42 @@ class HybridBiTests(unittest.TestCase):
         self.assertTrue(should_display_result_table(
             "Show a detailed breakdown of the portfolio growth drivers", drivers
         ))
+
+    def test_historical_followup_carries_previous_product_scope(self):
+        history = [
+            {"role": "user", "content": "Personal Loan growth versus last year"},
+            {"role": "assistant", "content": "Personal Loan grew 11.57% YoY."},
+        ]
+        with patch("hybrid_bi.answer_historical_bi") as historical_answer:
+            historical_answer.return_value = (
+                "Personal Loan drivers",
+                pd.DataFrame([{"Driver": "Personal Loan"}]),
+                "historical:portfolio_amount:drivers",
+            )
+            answer_hybrid_bi(
+                "what are the drivers of this growth",
+                self.df,
+                history,
+                historical_df=pd.DataFrame([{"month": "2026-09-01"}]),
+            )
+        routed_question = historical_answer.call_args.args[0]
+        self.assertIn("what are the drivers of this growth", routed_question)
+        self.assertIn("Personal Loan growth versus last year", routed_question)
+
+    def test_fully_specified_historical_question_does_not_inherit_old_scope(self):
+        history = [{"role": "user", "content": "Personal Loan growth versus last year"}]
+        with patch("hybrid_bi.answer_historical_bi") as historical_answer:
+            historical_answer.return_value = None
+            answer_hybrid_bi(
+                "Vehicle Loan growth versus last year",
+                self.df,
+                history,
+                historical_df=pd.DataFrame([{"month": "2026-09-01"}]),
+            )
+        self.assertEqual(
+            historical_answer.call_args.args[0],
+            "Vehicle Loan growth versus last year",
+        )
 
 
 if __name__ == "__main__":
