@@ -263,6 +263,26 @@ class HybridBiTests(unittest.TestCase):
         result = answer_hybrid_bi("what is total business for bank as a whole", branch_only)
         self.assertEqual(float(result.data["outstanding"].sum()), 300.0)
 
+    def test_this_branch_propensity_and_credit_leads_use_context_without_naming_customers(self):
+        scoped = self.df.copy()
+        scoped.loc[scoped["customer_id"] == "1", ["branch_code", "city"]] = ["BR001", "Mumbai"]
+        scoped.loc[scoped["customer_id"] == "2", ["branch_code", "city"]] = ["BR011", "Kochi"]
+        history = [{
+            "role": "assistant", "content": "Kochi (BR011) has the selected result.",
+            "data": [{"branch_code": "BR011", "city": "Kochi"}],
+            "route": "deterministic:branch_product_contribution",
+        }]
+        propensity = answer_hybrid_bi("give me the propensity leads for this branch", scoped, history)
+        self.assertEqual(propensity.route, "deterministic:ai_ml_output:propensity")
+        self.assertIn("list is shown below", propensity.answer)
+        self.assertNotIn("A", propensity.answer)
+        credit = answer_hybrid_bi("give me the credit decisioning leads", scoped, history)
+        self.assertEqual(credit.route, "deterministic:ai_ml_output:credit_decisioning")
+        self.assertIn("eligible for STP", credit.answer)
+        self.assertTrue((credit.data["risk"] < .45).all())
+        self.assertTrue((credit.data["dpd"] == 0).all())
+        self.assertTrue((credit.data["branch_code"] == "BR011").all())
+
 
 if __name__ == "__main__":
     unittest.main()

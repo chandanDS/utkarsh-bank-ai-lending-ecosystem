@@ -300,7 +300,14 @@ def _contextual_story_result(
         return HybridBIResult(answer, result, "deterministic:portfolio_breakdown", zero_usage())
 
     branch = _latest_context_branch(history)
-    referential_branch = "this branch" in q or "branch contributing most" in q or "maximum default in" in q
+    ai_ml_followup = any(marker in q for marker in (
+        "propensity", "credit decision", "early warning", "default prediction", "churn",
+        "cross-sell", "cross sell", "personalization", "collection", "next best",
+    )) and not re.search(r"\bbr\d{3}\b", q)
+    referential_branch = (
+        "this branch" in q or "branch contributing most" in q or "maximum default in" in q
+        or ai_ml_followup
+    )
     if not branch or not referential_branch:
         return None
     product = _latest_context_product(history)

@@ -173,6 +173,15 @@ class HistoricalAnalyticsTests(unittest.TestCase):
         self.assertNotIn("collection efficiency", answer.lower())
         self.assertEqual(len(result), 4)
 
+    def test_generic_funnel_recommendation_diagnoses_authorized_portfolio(self):
+        answer, result, route = answer_historical_bi(
+            "how to improve the funnel leakage", self.history
+        )
+        self.assertEqual(route, "historical:funnel_leakage:diagnosis")
+        self.assertIn("Authorized bank portfolio", answer)
+        self.assertIn("Propensity", answer)
+        self.assertEqual(len(result), 4)
+
     def test_unspecified_portfolio_growth_defaults_to_amount(self):
         answer, _, route = answer_historical_bi(
             "Show portfolio growth compared with last year",

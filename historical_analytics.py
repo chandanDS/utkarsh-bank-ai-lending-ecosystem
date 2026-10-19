@@ -406,8 +406,10 @@ def _funnel_leakage_analysis(question: str, history: pd.DataFrame):
         return answer, selected, "historical:funnel_leakage:branch_ranking"
 
     target_scope, location = _geography_filter(q, scoped)
-    if not location or target_scope.empty:
+    if target_scope.empty:
         return None
+    if not location:
+        location = "Authorized bank portfolio"
     current = _aggregate(target_scope, [latest]).iloc[0]
     stages = [
         ("Lead → Application", "leads", "applications", "AI/ML Intelligence → Propensity and Campaign Agent"),

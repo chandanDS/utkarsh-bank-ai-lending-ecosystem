@@ -65,7 +65,7 @@ def _prediction_output_request(
     """Return governed customer-level AI/ML outputs without bypassing caller scope."""
     detail_markers = (
         "list", "show", "data", "record", "output", "customer", "who are",
-        "what are", "candidates",
+        "what are", "give me", "candidates",
     )
     if not any(marker in question for marker in detail_markers):
         return None
@@ -133,7 +133,7 @@ def _prediction_output_request(
             "title": "Credit decisioning",
             "filter": lambda frame: pd.Series(True, index=frame.index),
             "sort": ["risk"],
-            "columns": ["customer_id", "name", "branch_code", "city", "product", "segment", "bureau", "risk", "requested_amount", "aa_cashflow", "reasons"],
+            "columns": ["customer_id", "name", "branch_code", "city", "product", "segment", "current_account_status", "dpd", "bureau", "risk", "requested_amount", "amount", "aa_cashflow", "reasons"],
         },
         "personalization": {
             "title": "Personalization",
@@ -156,18 +156,33 @@ def _prediction_output_request(
     }
     config = configs[use_case]
     result = result[config["filter"](result)].copy()
+    stp_requested = use_case == "credit_decisioning" and any(
+        marker in question for marker in ("lead", "stp", "straight-through", "straight through")
+    )
+    if stp_requested:
+        result = result[
+            result["segment"].isin(["pre-approved", "pre-qualified"])
+            & (result["risk"] < .45)
+            & (result["dpd"] == 0)
+        ].copy()
     sort_columns = [column for column in config["sort"] if column in result.columns]
     if sort_columns:
         result = result.sort_values(sort_columns, ascending=False, kind="stable")
     result = result[[column for column in config["columns"] if column in result.columns]]
 
+    output_title = "Credit decisioning STP leads" if stp_requested else config["title"]
     scope_label = target_code or "the authorized portfolio"
     if result.empty:
-        answer = f"No authorized {config['title']} prediction records matched for {scope_label}."
+        answer = f"No authorized {output_title} matched for {scope_label}."
     else:
         city_values = result["city"].dropna().unique().tolist() if "city" in result else []
         location = f"{city_values[0]} ({target_code})" if target_code and len(city_values) == 1 else scope_label
-        answer = f"Found {len(result):,} {config['title']} prediction records for {location}."
+        if use_case == "propensity":
+            answer = f"Found {len(result):,} Propensity leads for {location}. The governed customer list is shown below."
+        elif stp_requested:
+            answer = f"Found {len(result):,} Credit decisioning leads eligible for STP for {location}. The eligible lead list is shown below."
+        else:
+            answer = f"Found {len(result):,} {config['title']} prediction records for {location}."
     return answer, result, f"ai_ml_output:{use_case}"
 
 
