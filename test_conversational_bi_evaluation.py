@@ -70,7 +70,7 @@ class ConversationalBIEvaluationTests(unittest.TestCase):
             ("Show cross-sell conversion YoY by customer segment", "historical:cross_sell_conversion_pct:yoy", True),
             ("Show collection efficiency trend", "historical:collection_efficiency_pct:yoy", False),
             ("Which region has the lowest portfolio growth?", "historical:portfolio_amount:yoy", False),
-            ("What are the drivers for Personal Loan growth?", "historical:portfolio_amount:drivers", True),
+            ("What are the drivers for Personal Loan growth?", "historical:executive:operational_growth_drivers", True),
             ("Give me drill down for South region portfolio to understand why portfolio is declining", "historical:portfolio_amount:drivers", True),
         ]
         for question, expected_route, expected_table in cases:

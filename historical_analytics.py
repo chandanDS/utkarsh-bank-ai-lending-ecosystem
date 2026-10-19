@@ -298,8 +298,11 @@ def _operational_growth_driver_analysis(question: str, history: pd.DataFrame):
     if product_scope.empty or product_scope["product"].nunique() != 1:
         return None
     target_scope, location = _geography_filter(q, product_scope)
-    if not location or target_scope.empty:
+    if target_scope.empty:
         return None
+    # Product-only questions are bank-wide; named city/branch/region questions retain
+    # their explicit geography. Both use one consistent growth-driver KPI contract.
+    location = location or "Bank-wide"
 
     latest = target_scope["month"].max()
     prior_month = latest - pd.DateOffset(years=1)

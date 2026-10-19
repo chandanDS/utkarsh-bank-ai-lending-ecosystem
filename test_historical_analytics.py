@@ -162,6 +162,25 @@ class HistoricalAnalyticsTests(unittest.TestCase):
         self.assertIn("Funnel efficiency", answer)
         self.assertIn("Approval-to-disbursal", set(result["Driver"]))
 
+    def test_bankwide_msme_growth_uses_same_operational_driver_contract(self):
+        msme = self.history.copy()
+        msme["product"] = "MSME Loan"
+        answer, result, route = answer_historical_bi(
+            "what are the drivers for growth in MSME portfolio", msme
+        )
+        self.assertEqual(route, "historical:executive:operational_growth_drivers")
+        self.assertTrue(answer.startswith("Bank-wide MSME Loan portfolio"))
+        self.assertIn("accounts changed", answer)
+        self.assertIn("Funnel efficiency", answer)
+        self.assertEqual(
+            set(result["Driver"]),
+            {
+                "Portfolio amount", "Accounts", "Average outstanding per account", "Leads",
+                "New accounts", "Disbursals", "Application-to-lead", "Approval-to-evaluation",
+                "Approval-to-disbursal", "Lead-to-disbursal",
+            },
+        )
+
     def test_least_funnel_leakage_is_ranked_by_lead_to_disbursal_not_collections(self):
         answer, result, route = answer_historical_bi(
             "which branch has least funnel leakage", self.history
