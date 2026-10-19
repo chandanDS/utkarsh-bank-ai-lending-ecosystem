@@ -108,16 +108,16 @@ class HistoricalAnalyticsTests(unittest.TestCase):
         self.assertIn("Default & early warning", answer)
         self.assertIn("Credit decisioning", answer)
 
-    def test_growth_drivers_return_product_and_branch_contributions(self):
+    def test_growth_drivers_use_account_funnel_and_campaign_evidence(self):
         answer, result, route = answer_historical_bi(
             "What are the drivers for this portfolio growth?",
             self.history,
         )
-        self.assertEqual(route, "historical:portfolio_amount:drivers")
-        self.assertEqual(set(result["Driver type"]), {"Product", "Branch"})
-        self.assertIn("leading product driver", answer)
-        self.assertIn("leading branch driver", answer)
-        self.assertIn("no intervention is recommended", answer)
+        self.assertEqual(route, "historical:executive:operational_growth_drivers")
+        self.assertIn("accounts changed", answer)
+        self.assertIn("Funnel efficiency", answer)
+        self.assertIn("Campaign drivers", answer)
+        self.assertIn("Campaign conversion", set(result["Driver"]))
 
     def test_named_branch_product_contribution_explains_business_and_funnel_drivers(self):
         kochi = self.history.copy()
@@ -177,7 +177,8 @@ class HistoricalAnalyticsTests(unittest.TestCase):
             {
                 "Portfolio amount", "Accounts", "Average outstanding per account", "Leads",
                 "New accounts", "Disbursals", "Application-to-lead", "Approval-to-evaluation",
-                "Approval-to-disbursal", "Lead-to-disbursal",
+                "Approval-to-disbursal", "Lead-to-disbursal", "Campaign contacts",
+                "Campaign responses", "Campaign conversion",
             },
         )
 
@@ -291,11 +292,9 @@ class HistoricalAnalyticsTests(unittest.TestCase):
             "What are the drivers for declining portfolio growth in South region?",
             scoped_history,
         )
-        self.assertEqual(route, "historical:portfolio_amount:drivers")
-        branch_drivers = set(result.loc[result["Driver type"] == "Branch", "Driver"])
-        product_drivers = set(result.loc[result["Driver type"] == "Product", "Driver"])
-        self.assertEqual(branch_drivers, {"BR001"})
-        self.assertEqual(product_drivers, {"Personal Loan"})
+        self.assertEqual(route, "historical:executive:operational_growth_drivers")
+        self.assertIn("Accounts", set(result["Driver"]))
+        self.assertIn("Campaign conversion", set(result["Driver"]))
         self.assertIn("South region portfolio", answer)
 
     def test_default_rate_by_branch_returns_only_requested_columns(self):
@@ -312,15 +311,16 @@ class HistoricalAnalyticsTests(unittest.TestCase):
             ["Product", "Current accounts", "Previous accounts", "Change accounts", "Change %"],
         )
 
-    def test_south_portfolio_drilldown_returns_product_and_branch_drivers(self):
+    def test_south_portfolio_why_drilldown_returns_operational_drivers(self):
         scoped_history = self.history.copy()
         scoped_history.loc[scoped_history["branch_code"] == "BR001", "region"] = "South"
         answer, result, route = answer_historical_bi(
             "give me drill down for South region portfolio to understand why portfolio is declining",
             scoped_history,
         )
-        self.assertEqual(route, "historical:portfolio_amount:drivers")
-        self.assertEqual(set(result["Driver type"]), {"Product", "Branch"})
+        self.assertEqual(route, "historical:executive:operational_growth_drivers")
+        self.assertIn("Accounts", set(result["Driver"]))
+        self.assertIn("Campaign conversion", set(result["Driver"]))
         self.assertIn("South region portfolio", answer)
 
     def test_current_snapshot_queries_are_not_captured_as_historical(self):
