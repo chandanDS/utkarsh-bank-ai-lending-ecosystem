@@ -65,6 +65,18 @@ class TwilioVoiceTests(unittest.TestCase):
         with patch.dict(os.environ, config, clear=True):
             self.assertEqual(authorized_test_numbers(), ("9876543210", "8765432109"))
 
+    def test_session_authorized_number_can_build_voice_call(self):
+        config = {
+            "TWILIO_ACCOUNT_SID": "AC" + "a" * 32,
+            "TWILIO_AUTH_TOKEN": "test-token",
+            "TWILIO_FROM_NUMBER": "+14155550100",
+        }
+        dynamic_number = "9876543210"
+        with patch.dict(os.environ, config, clear=True):
+            request = build_call_request(dynamic_number, authorized_numbers=(dynamic_number,))
+            fields = parse_qs(request.data.decode("utf-8"))
+            self.assertEqual(fields["To"], ["+91" + dynamic_number])
+
 
 if __name__ == "__main__":
     unittest.main()

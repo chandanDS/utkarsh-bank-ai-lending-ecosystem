@@ -57,8 +57,8 @@ def is_authorized_test_number(phone: str, authorized_numbers=None) -> bool:
     return phone in allowed
 
 
-def build_call_request(phone=TEST_NUMBER):
-    if not is_authorized_test_number(phone):
+def build_call_request(phone=TEST_NUMBER, authorized_numbers=None):
+    if not is_authorized_test_number(phone, authorized_numbers):
         raise ValueError("POC calls are restricted to the authorized test-number allowlist.")
     missing = configuration_status()
     if missing:
@@ -82,10 +82,10 @@ def build_call_request(phone=TEST_NUMBER):
                                              "Content-Type": "application/x-www-form-urlencoded"}, method="POST")
 
 
-def place_test_call(phone=TEST_NUMBER):
+def place_test_call(phone=TEST_NUMBER, authorized_numbers=None):
     if not call_window_open():
         raise ValueError("The configured campaign calling window is closed in India Standard Time.")
-    request = build_call_request(phone)
+    request = build_call_request(phone, authorized_numbers)
     try:
         with urlopen(request, timeout=15) as response:
             result = json.load(response)

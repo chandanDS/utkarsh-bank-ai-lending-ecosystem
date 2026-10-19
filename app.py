@@ -1086,7 +1086,7 @@ elif page == "Campaign agent":
         channel = st.selectbox("Channel", ["WhatsApp", "SMS", "Voice bot"], index=["WhatsApp", "SMS", "Voice"].index(c.preferred_channel) if c.preferred_channel in ["WhatsApp", "SMS", "Voice"] else 0)
         configured_recipients = authorized_test_numbers()
         st.session_state.setdefault("dynamic_test_recipients", [])
-        dynamic_recipients = tuple(st.session_state.dynamic_test_recipients) if channel in {"SMS", "WhatsApp"} else ()
+        dynamic_recipients = tuple(st.session_state.dynamic_test_recipients)
         authorized_recipients = tuple(dict.fromkeys((*configured_recipients, *dynamic_recipients)))
         dynamic_recipient_set = set(dynamic_recipients)
         raw_selected_recipients = st.multiselect(
@@ -1101,12 +1101,8 @@ elif page == "Campaign agent":
                 else f"Configured recipient · ******{number[-4:]}"
             ),
             key=f"campaign_recipients_{channel.lower().replace(' ', '_')}",
-            accept_new_options=channel in {"SMS", "WhatsApp"},
-            placeholder=(
-                "Select recipients or type +919876543210 and press Enter"
-                if channel in {"SMS", "WhatsApp"}
-                else "Select one configured recipient"
-            ),
+            accept_new_options=True,
+            placeholder="Select recipients or type +919876543210 and press Enter",
         )
         selected_recipients = []
         for recipient in raw_selected_recipients:
@@ -1121,12 +1117,11 @@ elif page == "Campaign agent":
             except ValueError as exc:
                 st.error(str(exc))
         selected_recipients = list(dict.fromkeys(selected_recipients))
-        dynamic_recipients = tuple(st.session_state.dynamic_test_recipients) if channel in {"SMS", "WhatsApp"} else ()
+        dynamic_recipients = tuple(st.session_state.dynamic_test_recipients)
         authorized_recipients = tuple(dict.fromkeys((*configured_recipients, *dynamic_recipients)))
-        if channel in {"SMS", "WhatsApp"}:
-            st.caption(
-                "Type a new +91 mobile number directly above and press Enter. New numbers are temporary for this browser session; Twilio trial accounts may still require recipient verification."
-            )
+        st.caption(
+            "Type a new +91 mobile number directly above and press Enter. New numbers are temporary for this browser session; Twilio trial accounts may still require recipient verification for messaging and voice calls."
+        )
         test_recipient = selected_recipients[0] if len(selected_recipients) == 1 else None
         campaign_message = campaign_meta["message"]
         if channel == "WhatsApp":
@@ -1199,7 +1194,9 @@ elif page == "Campaign agent":
             can_twilio_call = len(selected_recipients) == 1 and test_recipient in authorized_recipients and not missing_twilio and call_window_open() and twilio_confirmed
             if st.button("Place Twilio voice bot call", disabled=not can_twilio_call, type="primary"):
                 try:
-                    call_sid, call_status = place_twilio_test_call(test_recipient)
+                    call_sid, call_status = place_twilio_test_call(
+                        test_recipient, authorized_recipients
+                    )
                     event(cid, "campaign", "twilio_test_call_requested", f"recipient=******{test_recipient[-4:]}; call_sid={call_sid}; status={call_status}", "campaign_agent")
                     st.success(f"Twilio accepted the call. Call ID: {call_sid}; status: {call_status}.")
                 except (ValueError, HTTPError, URLError, TimeoutError) as exc:
