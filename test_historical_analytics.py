@@ -182,6 +182,26 @@ class HistoricalAnalyticsTests(unittest.TestCase):
         self.assertIn("Propensity", answer)
         self.assertEqual(len(result), 4)
 
+    def test_overall_business_improvement_returns_executive_recommendations(self):
+        answer, result, route = answer_historical_bi(
+            "how to improve overall business portfolio for bank as a whole", self.history
+        )
+        self.assertEqual(route, "historical:portfolio:improvement")
+        self.assertIn("Recommended actions", answer)
+        self.assertIn("Propensity", answer)
+        self.assertIn("Campaign Agent", answer)
+        self.assertIn("Funnel leakage", set(result["KPI"]))
+
+    def test_september_vs_august_accounts_uses_new_account_counts(self):
+        answer, result, route = answer_historical_bi(
+            "what is the growth in number of accounts opened in september compared to august", self.history
+        )
+        self.assertEqual(route, "historical:new_accounts:explicit_months")
+        self.assertIn("new accounts", answer)
+        self.assertEqual(result["Period"].str.contains("August|September").sum(), 2)
+        self.assertIn("New accounts", result.columns)
+        self.assertNotIn("Portfolio Amount", answer)
+
     def test_unspecified_portfolio_growth_defaults_to_amount(self):
         answer, _, route = answer_historical_bi(
             "Show portfolio growth compared with last year",

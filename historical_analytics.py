@@ -440,14 +440,107 @@ def _funnel_leakage_analysis(question: str, history: pd.DataFrame):
     return answer, result, "historical:funnel_leakage:diagnosis"
 
 
+def _portfolio_improvement_analysis(question: str, history: pd.DataFrame):
+    """Return an executive portfolio-growth recommendation grounded in current funnel KPIs."""
+    q = question.lower()
+    asks_improvement = any(term in q for term in ("improve", "increase", "grow", "accelerate"))
+    asks_business = any(term in q for term in ("business portfolio", "overall business", "overall portfolio"))
+    if not (asks_improvement and asks_business):
+        return None
+    scoped = _product_filter(q, history)
+    scoped, location = _geography_filter(q, scoped)
+    latest = scoped["month"].max()
+    current = _aggregate(scoped, [latest]).iloc[0]
+    prior = _aggregate(scoped, [latest - pd.DateOffset(years=1)]).iloc[0]
+
+    def growth(current_value: float, prior_value: float) -> float:
+        return 100 * (float(current_value) - float(prior_value)) / max(float(prior_value), 1.0)
+
+    portfolio_growth = growth(current["portfolio_amount"], prior["portfolio_amount"])
+    account_growth = growth(current["account_count"], prior["account_count"])
+    approved_not_disbursed = max(0, int(current["approved"] - current["disbursed"]))
+    funnel_leakage = 100 * (float(current["leads"]) - float(current["disbursed"])) / max(float(current["leads"]), 1.0)
+    cross_sell_conversion = 100 * float(current["cross_sell_accepted"]) / max(float(current["cross_sell_contacted"]), 1.0)
+    scope_label = location or "Authorized bank portfolio"
+    momentum = "growing" if portfolio_growth >= 0 else "contracting"
+    answer = (
+        f"{scope_label} is ₹{float(current['portfolio_amount']) / 10_000_000:,.2f} Cr and is {momentum} "
+        f"{portfolio_growth:+.2f}% YoY; accounts changed {account_growth:+.2f}%. "
+        f"**Recommended actions:** (1) use Propensity output to prioritize qualified acquisition leads; "
+        f"(2) use Campaign Agent to follow up {approved_not_disbursed:,} approved-but-not-disbursed cases; "
+        f"(3) use Cross-sell / up-sell and Next Best Offer/Action to improve the current {cross_sell_conversion:.2f}% "
+        f"cross-sell conversion; and (4) use Credit decisioning to reduce evaluation and approval leakage. "
+        f"Current end-to-end funnel leakage is {funnel_leakage:.2f}%, so conversion improvement is the clearest near-term lever."
+    )
+    result = pd.DataFrame([
+        {"KPI": "Outstanding portfolio", "Value": round(float(current["portfolio_amount"]) / 10_000_000, 2), "Unit": "₹ Cr"},
+        {"KPI": "Portfolio growth YoY", "Value": round(portfolio_growth, 2), "Unit": "%"},
+        {"KPI": "Account growth YoY", "Value": round(account_growth, 2), "Unit": "%"},
+        {"KPI": "Approved but not disbursed", "Value": approved_not_disbursed, "Unit": "cases"},
+        {"KPI": "Funnel leakage", "Value": round(funnel_leakage, 2), "Unit": "%"},
+        {"KPI": "Cross-sell conversion", "Value": round(cross_sell_conversion, 2), "Unit": "%"},
+    ])
+    return answer, result, "historical:portfolio:improvement"
+
+
+def _explicit_month_account_comparison(question: str, history: pd.DataFrame):
+    """Compare newly opened account counts for two explicitly named months."""
+    q = question.lower()
+    if not ("account" in q and any(term in q for term in ("open", "new", "added"))):
+        return None
+    month_numbers = {
+        "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
+        "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12,
+    }
+    mentioned = [(q.find(name), name, number) for name, number in month_numbers.items() if name in q]
+    mentioned.sort()
+    if len(mentioned) < 2:
+        return None
+    (_, current_name, current_number), (_, prior_name, prior_number) = mentioned[:2]
+    scoped = _product_filter(q, history)
+    scoped, location = _geography_filter(q, scoped)
+    latest = scoped["month"].max()
+
+    def most_recent_month(month_number: int) -> pd.Timestamp:
+        candidates = sorted(scoped.loc[(scoped["month"].dt.month == month_number) & (scoped["month"] <= latest), "month"].unique())
+        return pd.Timestamp(candidates[-1])
+
+    current_period = most_recent_month(current_number)
+    prior_period = most_recent_month(prior_number)
+    current_accounts = int(_aggregate(scoped, [current_period]).iloc[0]["new_accounts"])
+    prior_accounts = int(_aggregate(scoped, [prior_period]).iloc[0]["new_accounts"])
+    absolute_change = current_accounts - prior_accounts
+    growth_pct = 100 * absolute_change / max(prior_accounts, 1)
+    scope_label = location or "Authorized bank portfolio"
+    answer = (
+        f"{scope_label} opened {current_accounts:,} new accounts in {current_name.title()} {current_period.year}, "
+        f"compared with {prior_accounts:,} in {prior_name.title()} {prior_period.year}. "
+        f"That is a change of {absolute_change:+,} accounts ({growth_pct:+.2f}%)."
+    )
+    result = pd.DataFrame([
+        {"Period": f"{prior_name.title()} {prior_period.year}", "New accounts": prior_accounts},
+        {"Period": f"{current_name.title()} {current_period.year}", "New accounts": current_accounts},
+    ])
+    result["Change accounts"] = [pd.NA, absolute_change]
+    result["Growth %"] = [pd.NA, round(growth_pct, 2)]
+    return answer, result, "historical:new_accounts:explicit_months"
+
+
 def answer_historical_bi(question: str, history: pd.DataFrame):
     q = question.lower().strip()
     markers = (
         "growth", "driver", "drill down", "drilldown", "month", "quarter", "yoy", "mom", "qoq",
         "last year", "last quarter", "trend", "new account", "performing", "funnel", "leakage",
+        "improve", "increase", "accounts opened", "account opened", "september", "august",
     )
     if history.empty or not any(marker in q for marker in markers):
         return None
+    portfolio_improvement = _portfolio_improvement_analysis(q, history)
+    if portfolio_improvement is not None:
+        return portfolio_improvement
+    month_account_comparison = _explicit_month_account_comparison(q, history)
+    if month_account_comparison is not None:
+        return month_account_comparison
     funnel_leakage = _funnel_leakage_analysis(q, history)
     if funnel_leakage is not None:
         return funnel_leakage
