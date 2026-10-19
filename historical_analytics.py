@@ -369,14 +369,86 @@ def _operational_growth_driver_analysis(question: str, history: pd.DataFrame):
     return answer, result, "historical:operational_growth:drivers"
 
 
+def _funnel_leakage_analysis(question: str, history: pd.DataFrame):
+    """Measure lending-funnel leakage independently of collection efficiency."""
+    q = question.lower()
+    if "funnel" not in q or "leak" not in q:
+        return None
+    scoped = _product_filter(q, history)
+    latest = scoped["month"].max()
+
+    if "branch" in q and any(term in q for term in ("least", "lowest", "minimum", "best")):
+        result = _aggregate(scoped, [latest], "branch_code")
+        result["funnel_leakage_pct"] = (
+            100 * (result["leads"] - result["disbursed"]) / result["leads"].clip(lower=1)
+        ).round(2)
+        result["lead_to_disbursal_pct"] = (
+            100 * result["disbursed"] / result["leads"].clip(lower=1)
+        ).round(2)
+        city_map = (
+            scoped.loc[scoped["month"].eq(latest), ["branch_code", "city"]]
+            .drop_duplicates("branch_code").set_index("branch_code")["city"]
+        )
+        result["city"] = result["branch_code"].map(city_map).fillna("")
+        result = result.sort_values(
+            ["funnel_leakage_pct", "lead_to_disbursal_pct", "branch_code"],
+            ascending=[True, False, True], kind="stable",
+        ).reset_index(drop=True)
+        selected = result.head(1)[
+            ["branch_code", "city", "leads", "applications", "credit_evaluated", "approved", "disbursed", "lead_to_disbursal_pct", "funnel_leakage_pct"]
+        ].copy()
+        row = selected.iloc[0]
+        answer = (
+            f"{row['city']} ({row['branch_code']}) has the least end-to-end funnel leakage at "
+            f"{row['funnel_leakage_pct']:.2f}%: {int(row['leads']):,} leads produced "
+            f"{int(row['disbursed']):,} disbursals ({row['lead_to_disbursal_pct']:.2f}% conversion)."
+        )
+        return answer, selected, "historical:funnel_leakage:branch_ranking"
+
+    target_scope, location = _geography_filter(q, scoped)
+    if not location or target_scope.empty:
+        return None
+    current = _aggregate(target_scope, [latest]).iloc[0]
+    stages = [
+        ("Lead → Application", "leads", "applications", "AI/ML Intelligence → Propensity and Campaign Agent"),
+        ("Application → Credit evaluation", "applications", "credit_evaluated", "digital onboarding and KYC workflow"),
+        ("Credit evaluation → Approval", "credit_evaluated", "approved", "AI/ML Intelligence → Credit decisioning"),
+        ("Approval → Disbursal", "approved", "disbursed", "Campaign Agent with approved-but-not-disbursed follow-up"),
+    ]
+    rows = []
+    for stage, start_column, end_column, action in stages:
+        start, end = int(current[start_column]), int(current[end_column])
+        leakage = max(0, start - end)
+        leakage_pct = 100 * leakage / max(start, 1)
+        rows.append({
+            "Funnel stage": stage, "Start": start, "Completed": end,
+            "Drop-off": leakage, "Leakage %": round(leakage_pct, 2), "Recommended module": action,
+        })
+    result = pd.DataFrame(rows).sort_values(["Leakage %", "Drop-off"], ascending=False, kind="stable")
+    largest = result.iloc[0]
+    total_leakage_pct = 100 * (float(current["leads"]) - float(current["disbursed"])) / max(float(current["leads"]), 1.0)
+    answer = (
+        f"{location} has {int(current['leads']):,} leads and {int(current['disbursed']):,} disbursals, "
+        f"so end-to-end funnel leakage is {total_leakage_pct:.2f}%. The largest stage leakage is "
+        f"{largest['Funnel stage']} at {largest['Leakage %']:.2f}% ({int(largest['Drop-off']):,} cases). "
+        f"**Recommended action:** Use Propensity output to prioritize qualified leads and Campaign Agent for "
+        f"conversion follow-up; address the largest stage through {largest['Recommended module']}. "
+        "Use Credit decisioning only for evaluation-to-approval leakage—not collections or Default & early warning."
+    )
+    return answer, result, "historical:funnel_leakage:diagnosis"
+
+
 def answer_historical_bi(question: str, history: pd.DataFrame):
     q = question.lower().strip()
     markers = (
         "growth", "driver", "drill down", "drilldown", "month", "quarter", "yoy", "mom", "qoq",
-        "last year", "last quarter", "trend", "new account", "performing",
+        "last year", "last quarter", "trend", "new account", "performing", "funnel", "leakage",
     )
     if history.empty or not any(marker in q for marker in markers):
         return None
+    funnel_leakage = _funnel_leakage_analysis(q, history)
+    if funnel_leakage is not None:
+        return funnel_leakage
     operational_growth_drivers = _operational_growth_driver_analysis(q, history)
     if operational_growth_drivers is not None:
         return operational_growth_drivers

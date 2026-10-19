@@ -148,6 +148,31 @@ class HistoricalAnalyticsTests(unittest.TestCase):
         self.assertIn("Lead-to-disbursal", set(result["Driver"]))
         self.assertIn("volume-led", answer)
 
+    def test_least_funnel_leakage_is_ranked_by_lead_to_disbursal_not_collections(self):
+        answer, result, route = answer_historical_bi(
+            "which branch has least funnel leakage", self.history
+        )
+        self.assertEqual(route, "historical:funnel_leakage:branch_ranking")
+        self.assertIn("city", result.columns)
+        self.assertIn("funnel_leakage_pct", result.columns)
+        self.assertIn("lead_to_disbursal_pct", result.columns)
+        self.assertNotIn("collection", answer.lower())
+        self.assertIn(str(result.iloc[0]["city"]), answer)
+
+    def test_kochi_funnel_recommendation_uses_propensity_and_stage_actions(self):
+        kochi = self.history.copy()
+        kochi.loc[kochi["branch_code"] == "BR001", ["branch_code", "city", "state", "region"]] = [
+            "BR011", "Kochi", "Kerala", "South"
+        ]
+        answer, result, route = answer_historical_bi(
+            "how to improve funnel leakage of kochi branch", kochi
+        )
+        self.assertEqual(route, "historical:funnel_leakage:diagnosis")
+        self.assertIn("Propensity", answer)
+        self.assertIn("Campaign Agent", answer)
+        self.assertNotIn("collection efficiency", answer.lower())
+        self.assertEqual(len(result), 4)
+
     def test_unspecified_portfolio_growth_defaults_to_amount(self):
         answer, _, route = answer_historical_bi(
             "Show portfolio growth compared with last year",
