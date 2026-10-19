@@ -222,7 +222,8 @@ def should_display_result_table(question, data):
         marker in normalized
         for marker in (
             "table", "list", "details", "detail", "breakdown", "all branches",
-            "all products", "all regions", "all segments",
+            "all products", "all regions", "all segments", "recommend", "recomend", "what should",
+            "how can", "action to", "actions to",
         )
     ) or bool(re.search(r"\b(top|bottom)\s+\d+\b", normalized))
     if explicit_detail:
@@ -315,8 +316,6 @@ st.html("""
 """)
 
 pages = ["Observe", "Analyze", "AI/ML intelligence", "Campaign agent", "Executive Business Impact report"]
-with st.sidebar.container(key="sidebar_brand"):
-    st.markdown("### Utkarsh Bank")
 active_scope = "All branches" if current_user["role"] == "HO" else current_user["branch_code"]
 with st.sidebar.container(border=True):
     role_label = "Head Office" if current_user["role"] == "HO" else "Branch user"

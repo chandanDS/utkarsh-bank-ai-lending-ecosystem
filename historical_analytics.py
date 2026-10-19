@@ -159,9 +159,13 @@ def observe_metrics(history: pd.DataFrame) -> dict[str, object]:
 
 def _product_filter(question: str, history: pd.DataFrame) -> pd.DataFrame:
     q = question.lower()
-    aliases = {"personal loan": "Personal Loan", "home loan": "Home Loan", "vehicle loan": "Vehicle Loan", "education loan": "Education Loan", "msme": "MSME Loan", "agri": "Agri Loan"}
-    for phrase, product in aliases.items():
-        if phrase in q:
+    aliases = {
+        r"personal\s+l+oan": "Personal Loan", r"home\s+l+oan": "Home Loan",
+        r"vehicle\s+l+oan": "Vehicle Loan", r"education\s+l+oan": "Education Loan",
+        r"\bmsme\b": "MSME Loan", r"\bagri(?:culture)?\b": "Agri Loan",
+    }
+    for pattern, product in aliases.items():
+        if re.search(pattern, q):
             return history[history["product"] == product]
     return history
 
@@ -206,6 +210,81 @@ def _insight_text(answer: str, metric: str, worsened: bool, negative_text: str |
     return f"{answer}\n\n**AI insight:** {insight}\n\n**Recommended action:** {recommendation}"
 
 
+def _contribution_driver_analysis(question: str, history: pd.DataFrame):
+    """Explain why a named geography contributes strongly to a named product portfolio."""
+    q = question.lower()
+    if not (any(term in q for term in ("driver", "reason", "why")) and "contribut" in q):
+        return None
+    product_scope = _product_filter(q, history)
+    if product_scope.empty or product_scope["product"].nunique() != 1:
+        return None
+    target_scope, location = _geography_filter(q, product_scope)
+    if not location or target_scope.empty:
+        return None
+
+    latest = product_scope["month"].max()
+    target = _aggregate(target_scope, [latest]).iloc[0]
+    product_total = _aggregate(product_scope, [latest]).iloc[0]
+    branch_totals = _aggregate(product_scope, [latest], "branch_code").sort_values(
+        "portfolio_amount", ascending=False, kind="stable"
+    ).reset_index(drop=True)
+    target_branch = str(target_scope.iloc[0]["branch_code"])
+    rank_matches = branch_totals.index[branch_totals["branch_code"].eq(target_branch)].tolist()
+    rank = rank_matches[0] + 1 if rank_matches else None
+    branch_count = max(1, len(branch_totals))
+    product = str(product_scope.iloc[0]["product"])
+
+    def pct(numerator: float, denominator: float) -> float:
+        return 100 * float(numerator) / max(float(denominator), 1.0)
+
+    portfolio_share = pct(target["portfolio_amount"], product_total["portfolio_amount"])
+    account_share = pct(target["account_count"], product_total["account_count"])
+    lead_share = pct(target["leads"], product_total["leads"])
+    disbursal_share = pct(target["disbursed"], product_total["disbursed"])
+    target_ticket_lakh = float(target["portfolio_amount"]) / max(float(target["account_count"]), 1.0) / 100_000
+    product_ticket_lakh = float(product_total["portfolio_amount"]) / max(float(product_total["account_count"]), 1.0) / 100_000
+    target_conversion = pct(target["disbursed"], target["leads"])
+    product_conversion = pct(product_total["disbursed"], product_total["leads"])
+    application_conversion = pct(target["applications"], target["leads"])
+    approval_conversion = pct(target["approved"], target["credit_evaluated"])
+
+    equal_branch_share = 100 / branch_count
+    scale_signal = (
+        "an above-average account base"
+        if account_share >= equal_branch_share
+        else "high portfolio value despite a below-average account base"
+    )
+    ticket_signal = "higher" if target_ticket_lakh > product_ticket_lakh else "lower"
+    conversion_signal = "above" if target_conversion > product_conversion else "below"
+    rank_text = f"ranks #{rank} of {branch_count}" if rank else "is a leading branch"
+    answer = (
+        f"{location} ({target_branch}) {rank_text} in {product}, contributing "
+        f"₹{float(target['portfolio_amount']) / 10_000_000:,.2f} Cr ({portfolio_share:.2f}% of the product portfolio). "
+        f"The contribution is primarily explained by {scale_signal}: {int(target['account_count']):,} accounts "
+        f"({account_share:.2f}% share), plus an average outstanding of ₹{target_ticket_lakh:,.2f} lakh, "
+        f"which is {ticket_signal} than the product average of ₹{product_ticket_lakh:,.2f} lakh. "
+        f"The branch generated {int(target['leads']):,} leads and {int(target['disbursed']):,} disbursals; "
+        f"lead-to-disbursal conversion is {target_conversion:.2f}%, {conversion_signal} the product benchmark of "
+        f"{product_conversion:.2f}%."
+    )
+    if target_conversion < product_conversion:
+        answer += " Funnel leakage is therefore an improvement opportunity, not the reason for the branch's high current contribution."
+    else:
+        answer += " Lead volume and conversion reinforce the branch's portfolio contribution."
+
+    result = pd.DataFrame([
+        {"Metric": "Portfolio contribution", "Branch value": round(portfolio_share, 2), "Product benchmark": round(100 / branch_count, 2), "Unit": "%"},
+        {"Metric": "Account contribution", "Branch value": round(account_share, 2), "Product benchmark": round(100 / branch_count, 2), "Unit": "%"},
+        {"Metric": "Lead contribution", "Branch value": round(lead_share, 2), "Product benchmark": round(100 / branch_count, 2), "Unit": "%"},
+        {"Metric": "Disbursal contribution", "Branch value": round(disbursal_share, 2), "Product benchmark": round(100 / branch_count, 2), "Unit": "%"},
+        {"Metric": "Lead-to-disbursal conversion", "Branch value": round(target_conversion, 2), "Product benchmark": round(product_conversion, 2), "Unit": "%"},
+        {"Metric": "Application-to-lead conversion", "Branch value": round(application_conversion, 2), "Product benchmark": round(pct(product_total['applications'], product_total['leads']), 2), "Unit": "%"},
+        {"Metric": "Approval-to-evaluation conversion", "Branch value": round(approval_conversion, 2), "Product benchmark": round(pct(product_total['approved'], product_total['credit_evaluated']), 2), "Unit": "%"},
+        {"Metric": "Average outstanding per account", "Branch value": round(target_ticket_lakh, 2), "Product benchmark": round(product_ticket_lakh, 2), "Unit": "₹ lakh"},
+    ])
+    return answer, result, "historical:portfolio_contribution:drivers"
+
+
 def answer_historical_bi(question: str, history: pd.DataFrame):
     q = question.lower().strip()
     markers = (
@@ -214,6 +293,9 @@ def answer_historical_bi(question: str, history: pd.DataFrame):
     )
     if history.empty or not any(marker in q for marker in markers):
         return None
+    contribution_drivers = _contribution_driver_analysis(q, history)
+    if contribution_drivers is not None:
+        return contribution_drivers
     scoped = _product_filter(q, history)
     scoped, geography_scope = _geography_filter(q, scoped)
     if scoped.empty:

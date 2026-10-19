@@ -101,7 +101,8 @@ def should_display_result_table(question: str, data: pd.DataFrame) -> bool:
         marker in q
         for marker in (
             "table", "list", "details", "detail", "breakdown", "all branches",
-            "all products", "all regions", "all segments",
+            "all products", "all regions", "all segments", "recommend", "recomend", "what should",
+            "how can", "action to", "actions to",
         )
     ) or bool(re.search(r"\b(top|bottom)\s+\d+\b", q))
     if explicit_detail:

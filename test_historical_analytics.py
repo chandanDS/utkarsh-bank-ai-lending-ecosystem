@@ -119,6 +119,20 @@ class HistoricalAnalyticsTests(unittest.TestCase):
         self.assertIn("leading branch driver", answer)
         self.assertIn("no intervention is recommended", answer)
 
+    def test_named_branch_product_contribution_explains_business_and_funnel_drivers(self):
+        kochi = self.history.copy()
+        kochi.loc[kochi["branch_code"] == "BR001", ["branch_code", "city", "state", "region"]] = [
+            "BR011", "Kochi", "Kerala", "South"
+        ]
+        answer, result, route = answer_historical_bi(
+            "what are the key drivers for kochi contributing most to personal lloan", kochi
+        )
+        self.assertEqual(route, "historical:portfolio_contribution:drivers")
+        self.assertIn("lead-to-disbursal conversion", answer)
+        self.assertIn("average outstanding", answer)
+        self.assertNotIn("grew", answer)
+        self.assertIn("Lead contribution", set(result["Metric"]))
+
     def test_unspecified_portfolio_growth_defaults_to_amount(self):
         answer, _, route = answer_historical_bi(
             "Show portfolio growth compared with last year",

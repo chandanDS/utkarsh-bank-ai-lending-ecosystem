@@ -300,9 +300,12 @@ def answer_action_recommendation(
         result = working[working["default_probability_90d"] >= .45].sort_values(
             ["default_probability_90d", "risk"], ascending=False
         )
+        matched_count = len(result)
+        result = result.head(200).copy()
         columns = ["customer_id", "name", "branch_code", "city", "product", "current_account_status", "default_probability_90d", "risk", "bureau", "dpd", "delinquency_events_12m", "utilization", "aa_cashflow", "outstanding"]
         insight = (
-            f"**AI insight:** Review the {len(result):,} customers below through Default & early warning and Credit decisioning. "
+            f"**AI insight:** {matched_count:,} customers match the Default & early warning criteria. "
+            f"The {len(result):,} highest-priority records are shown below for Credit decisioning review. "
             "Prioritize high predicted risk while distinguishing currently standard customers from already delinquent accounts."
         )
         route = "default_prediction"

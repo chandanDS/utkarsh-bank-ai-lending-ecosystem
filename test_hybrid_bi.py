@@ -135,6 +135,12 @@ class HybridBiTests(unittest.TestCase):
             "Show the branch breakdown for default-rate growth", ranked
         ))
 
+    def test_recommendation_question_displays_actionable_customer_table(self):
+        customers = pd.DataFrame([{"customer_id": "C1"}, {"customer_id": "C2"}])
+        self.assertTrue(should_display_result_table(
+            "what is the recomendation to reduce default rate", customers
+        ))
+
     def test_key_driver_summary_hides_table_unless_breakdown_is_requested(self):
         drivers = pd.DataFrame([
             {"Driver type": "Product", "Driver": "Personal Loan", "Change ₹ Cr": 8.20},
