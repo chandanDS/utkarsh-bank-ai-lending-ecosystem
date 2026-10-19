@@ -9,7 +9,7 @@ TEST_MESSAGE = (
 )
 VOICE_SCRIPT = (
     "Hello. This is a test call created by Chandan Singh to demonstrate an outbound voice campaign "
-    "for Bajaj Finserv personal loans. This is only a pilot test. No loan offer is being made, "
+    "for Utkarsh Small Finance Bank personal loans. This is only a pilot test. No loan offer is being made, "
     "and no action is required. Thank you."
 )
 

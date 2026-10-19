@@ -55,7 +55,7 @@ class TwilioVoiceTests(unittest.TestCase):
         }
         with patch.dict(os.environ, config, clear=True):
             fields = parse_qs(build_call_request().data.decode("utf-8"))
-            self.assertIn("Bajaj Finserv personal loan", fields["Twiml"][0])
+            self.assertIn("Utkarsh Small Finance Bank personal loan", fields["Twiml"][0])
             self.assertIn("Chandan Singh", fields["Twiml"][0])
             self.assertNotIn("link", fields["Twiml"][0].lower())
             self.assertNotIn("Url", fields)
