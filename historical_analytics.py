@@ -288,7 +288,11 @@ def _contribution_driver_analysis(question: str, history: pd.DataFrame):
 def _operational_growth_driver_analysis(question: str, history: pd.DataFrame):
     """Explain named product/geography growth through balance-sheet and funnel movements."""
     q = question.lower()
-    if not ("growth" in q and any(term in q for term in ("driver", "reason", "why"))):
+    asks_driver = any(term in q for term in ("driver", "reason", "why"))
+    # A named branch + product driver question implies growth/contribution analysis even
+    # when an executive omits the word "growth". Contribution questions retain their
+    # separate point-in-time handler below.
+    if not asks_driver or "contribut" in q:
         return None
     product_scope = _product_filter(q, history)
     if product_scope.empty or product_scope["product"].nunique() != 1:
@@ -327,9 +331,12 @@ def _operational_growth_driver_analysis(question: str, history: pd.DataFrame):
     prior_approval_rate = rate(prior, "approved", "credit_evaluated")
     current_lead_conversion = rate(current, "disbursed", "leads")
     prior_lead_conversion = rate(prior, "disbursed", "leads")
+    current_approval_disbursal = rate(current, "disbursed", "approved")
+    prior_approval_disbursal = rate(prior, "disbursed", "approved")
     application_change = current_application_rate - prior_application_rate
     approval_change = current_approval_rate - prior_approval_rate
     lead_conversion_change = current_lead_conversion - prior_lead_conversion
+    approval_disbursal_change = current_approval_disbursal - prior_approval_disbursal
 
     positive_volume = lead_growth > 0 or new_account_growth > 0 or account_growth > 0
     positive_efficiency = lead_conversion_change > 0
@@ -353,7 +360,8 @@ def _operational_growth_driver_analysis(question: str, history: pd.DataFrame):
         f"changed {ticket_growth:+.2f}%. Acquisition drivers: leads changed {lead_growth:+.2f}%, new accounts "
         f"{new_account_growth:+.2f}%, and disbursals {disbursal_growth:+.2f}%. Funnel efficiency: "
         f"application-to-lead changed {application_change:+.2f} pp, approval-to-evaluation {approval_change:+.2f} pp, "
-        f"and lead-to-disbursal {lead_conversion_change:+.2f} pp. **AI insight:** {interpretation}"
+        f"approval-to-disbursal {approval_disbursal_change:+.2f} pp, and lead-to-disbursal "
+        f"{lead_conversion_change:+.2f} pp. **Driver interpretation:** {interpretation}"
     )
     result = pd.DataFrame([
         {"Driver": "Portfolio amount", "Prior year": round(float(prior["portfolio_amount"]) / 10_000_000, 2), "Current": round(float(current["portfolio_amount"]) / 10_000_000, 2), "Change": round(portfolio_growth, 2), "Unit": "₹ Cr / %"},
@@ -364,9 +372,10 @@ def _operational_growth_driver_analysis(question: str, history: pd.DataFrame):
         {"Driver": "Disbursals", "Prior year": int(prior["disbursed"]), "Current": int(current["disbursed"]), "Change": round(disbursal_growth, 2), "Unit": "count / %"},
         {"Driver": "Application-to-lead", "Prior year": round(prior_application_rate, 2), "Current": round(current_application_rate, 2), "Change": round(application_change, 2), "Unit": "% / pp"},
         {"Driver": "Approval-to-evaluation", "Prior year": round(prior_approval_rate, 2), "Current": round(current_approval_rate, 2), "Change": round(approval_change, 2), "Unit": "% / pp"},
+        {"Driver": "Approval-to-disbursal", "Prior year": round(prior_approval_disbursal, 2), "Current": round(current_approval_disbursal, 2), "Change": round(approval_disbursal_change, 2), "Unit": "% / pp"},
         {"Driver": "Lead-to-disbursal", "Prior year": round(prior_lead_conversion, 2), "Current": round(current_lead_conversion, 2), "Change": round(lead_conversion_change, 2), "Unit": "% / pp"},
     ])
-    return answer, result, "historical:operational_growth:drivers"
+    return answer, result, "historical:executive:operational_growth_drivers"
 
 
 def _funnel_leakage_analysis(question: str, history: pd.DataFrame):

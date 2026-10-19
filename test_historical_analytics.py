@@ -141,12 +141,26 @@ class HistoricalAnalyticsTests(unittest.TestCase):
         answer, result, route = answer_historical_bi(
             "what are the key driver for growth in kochi for personal loan", kochi
         )
-        self.assertEqual(route, "historical:operational_growth:drivers")
+        self.assertEqual(route, "historical:executive:operational_growth_drivers")
         self.assertIn("Acquisition drivers", answer)
         self.assertIn("Funnel efficiency", answer)
-        self.assertIn("AI insight", answer)
+        self.assertIn("Driver interpretation", answer)
         self.assertIn("Lead-to-disbursal", set(result["Driver"]))
+        self.assertIn("Approval-to-disbursal", set(result["Driver"]))
         self.assertIn("volume-led", answer)
+
+    def test_named_branch_product_drivers_imply_growth_analysis(self):
+        kochi = self.history.copy()
+        kochi.loc[kochi["branch_code"] == "BR001", ["branch_code", "city", "state", "region"]] = [
+            "BR011", "Kochi", "Kerala", "South"
+        ]
+        answer, result, route = answer_historical_bi(
+            "what are the key drivers of kochi branch in personal loan", kochi
+        )
+        self.assertEqual(route, "historical:executive:operational_growth_drivers")
+        self.assertIn("accounts changed", answer)
+        self.assertIn("Funnel efficiency", answer)
+        self.assertIn("Approval-to-disbursal", set(result["Driver"]))
 
     def test_least_funnel_leakage_is_ranked_by_lead_to_disbursal_not_collections(self):
         answer, result, route = answer_historical_bi(
