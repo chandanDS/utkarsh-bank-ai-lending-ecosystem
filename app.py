@@ -1086,45 +1086,47 @@ elif page == "Campaign agent":
         channel = st.selectbox("Channel", ["WhatsApp", "SMS", "Voice bot"], index=["WhatsApp", "SMS", "Voice"].index(c.preferred_channel) if c.preferred_channel in ["WhatsApp", "SMS", "Voice"] else 0)
         configured_recipients = authorized_test_numbers()
         st.session_state.setdefault("dynamic_test_recipients", [])
-        if channel in {"SMS", "WhatsApp"}:
-            with st.form("add_campaign_recipient", border=False):
-                recipient_row = st.container(horizontal=True, vertical_alignment="bottom")
-                with recipient_row:
-                    st.text_input(
-                        "Add an authorized demo recipient",
-                        placeholder="+919876543210",
-                        key="new_campaign_recipient",
-                    )
-                    add_recipient = st.form_submit_button(
-                        "Add number", icon=":material/person_add:"
-                    )
-                if add_recipient:
-                    try:
-                        normalized = normalize_indian_mobile(st.session_state.new_campaign_recipient)
-                        if normalized not in configured_recipients and normalized not in st.session_state.dynamic_test_recipients:
-                            st.session_state.dynamic_test_recipients.append(normalized)
-                            st.success(f"Demo recipient ******{normalized[-4:]} added for this browser session.")
-                        else:
-                            st.info("That recipient is already available.")
-                    except ValueError as exc:
-                        st.error(str(exc))
-            st.caption(
-                "New numbers are temporary and session-scoped. Twilio trial accounts may still require recipient verification."
-            )
         dynamic_recipients = tuple(st.session_state.dynamic_test_recipients) if channel in {"SMS", "WhatsApp"} else ()
         authorized_recipients = tuple(dict.fromkeys((*configured_recipients, *dynamic_recipients)))
         dynamic_recipient_set = set(dynamic_recipients)
-        selected_recipients = st.multiselect(
+        raw_selected_recipients = st.multiselect(
             "Authorized test recipients",
             authorized_recipients,
             default=list(authorized_recipients[:1]),
             format_func=lambda number: (
-                f"Session recipient · ******{number[-4:]}"
+                f"New session recipient · ******{number[-4:]}"
+                if str(number).startswith("+")
+                else f"Session recipient · ******{number[-4:]}"
                 if number in dynamic_recipient_set
                 else f"Configured recipient · ******{number[-4:]}"
             ),
             key=f"campaign_recipients_{channel.lower().replace(' ', '_')}",
+            accept_new_options=channel in {"SMS", "WhatsApp"},
+            placeholder=(
+                "Select recipients or type +919876543210 and press Enter"
+                if channel in {"SMS", "WhatsApp"}
+                else "Select one configured recipient"
+            ),
         )
+        selected_recipients = []
+        for recipient in raw_selected_recipients:
+            if recipient in authorized_recipients:
+                selected_recipients.append(recipient)
+                continue
+            try:
+                normalized = normalize_indian_mobile(recipient)
+                selected_recipients.append(normalized)
+                if normalized not in st.session_state.dynamic_test_recipients:
+                    st.session_state.dynamic_test_recipients.append(normalized)
+            except ValueError as exc:
+                st.error(str(exc))
+        selected_recipients = list(dict.fromkeys(selected_recipients))
+        dynamic_recipients = tuple(st.session_state.dynamic_test_recipients) if channel in {"SMS", "WhatsApp"} else ()
+        authorized_recipients = tuple(dict.fromkeys((*configured_recipients, *dynamic_recipients)))
+        if channel in {"SMS", "WhatsApp"}:
+            st.caption(
+                "Type a new +91 mobile number directly above and press Enter. New numbers are temporary for this browser session; Twilio trial accounts may still require recipient verification."
+            )
         test_recipient = selected_recipients[0] if len(selected_recipients) == 1 else None
         campaign_message = campaign_meta["message"]
         if channel == "WhatsApp":
