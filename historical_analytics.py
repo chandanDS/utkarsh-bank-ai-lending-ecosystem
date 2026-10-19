@@ -285,6 +285,90 @@ def _contribution_driver_analysis(question: str, history: pd.DataFrame):
     return answer, result, "historical:portfolio_contribution:drivers"
 
 
+def _operational_growth_driver_analysis(question: str, history: pd.DataFrame):
+    """Explain named product/geography growth through balance-sheet and funnel movements."""
+    q = question.lower()
+    if not ("growth" in q and any(term in q for term in ("driver", "reason", "why"))):
+        return None
+    product_scope = _product_filter(q, history)
+    if product_scope.empty or product_scope["product"].nunique() != 1:
+        return None
+    target_scope, location = _geography_filter(q, product_scope)
+    if not location or target_scope.empty:
+        return None
+
+    latest = target_scope["month"].max()
+    prior_month = latest - pd.DateOffset(years=1)
+    current_frame = _aggregate(target_scope, [latest])
+    prior_frame = _aggregate(target_scope, [prior_month])
+    if current_frame.empty or prior_frame.empty:
+        return None
+    current, prior = current_frame.iloc[0], prior_frame.iloc[0]
+    product = str(product_scope.iloc[0]["product"])
+
+    def growth(current_value: float, prior_value: float) -> float:
+        return 100 * (float(current_value) - float(prior_value)) / max(float(prior_value), 1.0)
+
+    def rate(row: pd.Series, numerator: str, denominator: str) -> float:
+        return 100 * float(row[numerator]) / max(float(row[denominator]), 1.0)
+
+    portfolio_growth = growth(current["portfolio_amount"], prior["portfolio_amount"])
+    account_growth = growth(current["account_count"], prior["account_count"])
+    lead_growth = growth(current["leads"], prior["leads"])
+    new_account_growth = growth(current["new_accounts"], prior["new_accounts"])
+    disbursal_growth = growth(current["disbursed"], prior["disbursed"])
+    current_ticket = float(current["portfolio_amount"]) / max(float(current["account_count"]), 1.0)
+    prior_ticket = float(prior["portfolio_amount"]) / max(float(prior["account_count"]), 1.0)
+    ticket_growth = growth(current_ticket, prior_ticket)
+
+    current_application_rate = rate(current, "applications", "leads")
+    prior_application_rate = rate(prior, "applications", "leads")
+    current_approval_rate = rate(current, "approved", "credit_evaluated")
+    prior_approval_rate = rate(prior, "approved", "credit_evaluated")
+    current_lead_conversion = rate(current, "disbursed", "leads")
+    prior_lead_conversion = rate(prior, "disbursed", "leads")
+    application_change = current_application_rate - prior_application_rate
+    approval_change = current_approval_rate - prior_approval_rate
+    lead_conversion_change = current_lead_conversion - prior_lead_conversion
+
+    positive_volume = lead_growth > 0 or new_account_growth > 0 or account_growth > 0
+    positive_efficiency = lead_conversion_change > 0
+    if positive_volume and positive_efficiency:
+        interpretation = "Growth is supported by both acquisition volume and funnel efficiency."
+    elif positive_volume:
+        interpretation = (
+            "Growth is volume-led, while end-to-end funnel efficiency weakened. The larger lead and account base "
+            "offset the lower lead-to-disbursal conversion; approval and disbursal leakage remain improvement opportunities."
+        )
+    elif positive_efficiency:
+        interpretation = "Growth is efficiency-led despite limited lead or account expansion."
+    else:
+        interpretation = "The measured portfolio movement is mainly ticket-size led rather than acquisition or funnel led."
+
+    answer = (
+        f"{location} {product} portfolio grew {portfolio_growth:+.2f}% YoY "
+        f"(₹{float(prior['portfolio_amount']) / 10_000_000:,.2f} Cr to "
+        f"₹{float(current['portfolio_amount']) / 10_000_000:,.2f} Cr). "
+        f"Balance-sheet drivers: accounts changed {account_growth:+.2f}% and average outstanding per account "
+        f"changed {ticket_growth:+.2f}%. Acquisition drivers: leads changed {lead_growth:+.2f}%, new accounts "
+        f"{new_account_growth:+.2f}%, and disbursals {disbursal_growth:+.2f}%. Funnel efficiency: "
+        f"application-to-lead changed {application_change:+.2f} pp, approval-to-evaluation {approval_change:+.2f} pp, "
+        f"and lead-to-disbursal {lead_conversion_change:+.2f} pp. **AI insight:** {interpretation}"
+    )
+    result = pd.DataFrame([
+        {"Driver": "Portfolio amount", "Prior year": round(float(prior["portfolio_amount"]) / 10_000_000, 2), "Current": round(float(current["portfolio_amount"]) / 10_000_000, 2), "Change": round(portfolio_growth, 2), "Unit": "₹ Cr / %"},
+        {"Driver": "Accounts", "Prior year": int(prior["account_count"]), "Current": int(current["account_count"]), "Change": round(account_growth, 2), "Unit": "count / %"},
+        {"Driver": "Average outstanding per account", "Prior year": round(prior_ticket / 100_000, 2), "Current": round(current_ticket / 100_000, 2), "Change": round(ticket_growth, 2), "Unit": "₹ lakh / %"},
+        {"Driver": "Leads", "Prior year": int(prior["leads"]), "Current": int(current["leads"]), "Change": round(lead_growth, 2), "Unit": "count / %"},
+        {"Driver": "New accounts", "Prior year": int(prior["new_accounts"]), "Current": int(current["new_accounts"]), "Change": round(new_account_growth, 2), "Unit": "count / %"},
+        {"Driver": "Disbursals", "Prior year": int(prior["disbursed"]), "Current": int(current["disbursed"]), "Change": round(disbursal_growth, 2), "Unit": "count / %"},
+        {"Driver": "Application-to-lead", "Prior year": round(prior_application_rate, 2), "Current": round(current_application_rate, 2), "Change": round(application_change, 2), "Unit": "% / pp"},
+        {"Driver": "Approval-to-evaluation", "Prior year": round(prior_approval_rate, 2), "Current": round(current_approval_rate, 2), "Change": round(approval_change, 2), "Unit": "% / pp"},
+        {"Driver": "Lead-to-disbursal", "Prior year": round(prior_lead_conversion, 2), "Current": round(current_lead_conversion, 2), "Change": round(lead_conversion_change, 2), "Unit": "% / pp"},
+    ])
+    return answer, result, "historical:operational_growth:drivers"
+
+
 def answer_historical_bi(question: str, history: pd.DataFrame):
     q = question.lower().strip()
     markers = (
@@ -293,6 +377,9 @@ def answer_historical_bi(question: str, history: pd.DataFrame):
     )
     if history.empty or not any(marker in q for marker in markers):
         return None
+    operational_growth_drivers = _operational_growth_driver_analysis(q, history)
+    if operational_growth_drivers is not None:
+        return operational_growth_drivers
     contribution_drivers = _contribution_driver_analysis(q, history)
     if contribution_drivers is not None:
         return contribution_drivers
