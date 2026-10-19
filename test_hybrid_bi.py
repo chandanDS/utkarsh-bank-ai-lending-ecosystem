@@ -32,6 +32,14 @@ class FakeCompletions:
         )
 
 
+class FakeInsightCompletions:
+    def create(self, **kwargs):
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="Mumbai has the stronger balanced KPI outcome."))],
+            usage=SimpleNamespace(prompt_tokens=52, completion_tokens=11),
+        )
+
+
 class HybridBiTests(unittest.TestCase):
     def setUp(self):
         self.df = pd.DataFrame([
@@ -114,6 +122,24 @@ class HybridBiTests(unittest.TestCase):
         result = answer_hybrid_bi("compare median bureau score by product", self.df)
         self.assertEqual(result.route, "groq_unavailable")
         self.assertIn("GROQ_API_KEY", result.answer)
+
+    def test_governed_historical_executive_query_uses_ai_insight_tokens(self):
+        client = SimpleNamespace(chat=SimpleNamespace(completions=FakeInsightCompletions()))
+        governed_rows = pd.DataFrame([{"City": "Mumbai", "Performance score": 12.9}])
+        with patch(
+            "hybrid_bi.answer_historical_bi",
+            return_value=("Mumbai is better on the governed comparison.", governed_rows, "historical:executive:test"),
+        ):
+            result = answer_hybrid_bi(
+                "Compare Mumbai and Delhi on portfolio growth and risk.",
+                self.df,
+                historical_df=pd.DataFrame([{"month": "2026-09-01"}]),
+                client=client,
+            )
+        self.assertEqual(result.route, "historical:executive:test")
+        self.assertIn("AI insight", result.answer)
+        self.assertGreater(result.usage["AI insight"], 0)
+        self.assertGreater(result.usage["Total"], 0)
 
     def test_sql_blocks_mutation_and_other_tables(self):
         with self.assertRaises(ValueError):

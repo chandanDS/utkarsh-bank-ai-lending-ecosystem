@@ -440,6 +440,41 @@ def _insight(client: Any, question: str, result: pd.DataFrame, title: str, model
     )
 
 
+def _historical_executive_insight(
+    client: Any, question: str, result: pd.DataFrame, model: str, temperature: float
+) -> Any:
+    evidence = result.head(10).to_json(orient="records", double_precision=4)
+    return client.chat.completions.create(
+        model=model,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "Write one executive banking insight of at most 80 words using only the supplied governed "
+                    "KPI rows. Preserve the stated units: % is percent and pp is percentage points. Identify the "
+                    "material trade-off and the better or priority branch where applicable. Do not invent causes, "
+                    "customers, values or recommendations. No table, heading or markdown."
+                ),
+            },
+            {"role": "user", "content": f"Question: {question}\nGoverned KPI rows:\n{evidence}"},
+        ],
+        temperature=max(1e-8, float(temperature)),
+        max_completion_tokens=160,
+        reasoning_effort="low",
+    )
+
+
+def _historical_insight_usage(question: str, history_text: str, response: Any) -> dict[str, int]:
+    response_usage = getattr(response, "usage", None)
+    total = _usage_value(response_usage, "prompt_tokens") + _usage_value(response_usage, "completion_tokens")
+    usage = zero_usage()
+    usage["Input"] = estimate_tokens(question)
+    usage["Context"] = 0 if history_text == "None" else estimate_tokens(history_text)
+    usage["AI insight"] = total
+    usage["Total"] = sum(usage.values())
+    return usage
+
+
 def answer_hybrid_bi(
     question: str,
     scoped_df: pd.DataFrame,
@@ -484,6 +519,20 @@ def answer_hybrid_bi(
         historical_result = answer_historical_bi(historical_question, historical_df)
         if historical_result is not None:
             answer, data, route = historical_result
+            if route.startswith("historical:executive:") and (api_key or client is not None):
+                history_text = _history_text(history)
+                groq_client = client or _client(str(api_key))
+                try:
+                    insight_response = _historical_executive_insight(
+                        groq_client, historical_question, data, insight_model, insight_temperature
+                    )
+                    insight = (insight_response.choices[0].message.content or "").strip()
+                    if insight:
+                        answer = f"{answer}\n\n**AI insight:** {insight}"
+                    usage = _historical_insight_usage(historical_question, history_text, insight_response)
+                    return HybridBIResult(answer, data, route, usage, model=insight_model)
+                except Exception:
+                    pass
             return HybridBIResult(answer, data, route, zero_usage())
     local_answer, local_data, local_route = answer_bi(question, scoped_df)
     if not _requires_llm(question, local_route):

@@ -200,6 +200,47 @@ class HistoricalAnalyticsTests(unittest.TestCase):
         self.assertIn("new accounts", answer)
         self.assertEqual(result["Period"].str.contains("August|September").sum(), 2)
         self.assertIn("New accounts", result.columns)
+
+    def test_branch_growth_risk_and_leakage_uses_all_three_metrics(self):
+        answer, result, route = answer_historical_bi(
+            "Identify branches where portfolio growth is positive but default risk and funnel leakage are worsening.",
+            self.history,
+        )
+        self.assertEqual(route, "historical:executive:branch_growth_risk_leakage")
+        self.assertIn("Portfolio growth %", result.columns)
+        self.assertIn("Default change pp", result.columns)
+        self.assertIn("Funnel leakage change pp", result.columns)
+        self.assertTrue((result["Portfolio growth %"] > 0).all())
+        self.assertTrue((result["Default change pp"] > 0).all())
+        self.assertTrue((result["Funnel leakage change pp"] > 0).all())
+        self.assertIn("conditions", answer)
+
+    def test_mumbai_delhi_executive_comparison_returns_both_cities(self):
+        answer, result, route = answer_historical_bi(
+            "Compare Mumbai and Delhi on portfolio growth, default risk and lead-conversion efficiency, and summarize the better-performing branch.",
+            self.history,
+        )
+        self.assertEqual(route, "historical:executive:city_performance_comparison")
+        self.assertEqual(set(result["City"]), {"Mumbai", "Delhi"})
+        self.assertIn("Performance score", result.columns)
+        self.assertIn("better-performing", answer)
+
+    def test_verified_executive_multi_kpi_query_pack(self):
+        cases = [
+            ("Which products have grown YoY but have experienced a decline in approval-to-disbursal conversion?", "product_growth_conversion"),
+            ("Which branches have strong lead volumes but weak disbursal conversion?", "branch_lead_conversion"),
+            ("Find branches where new-account growth is declining even though the outstanding portfolio is increasing.", "accounts_down_portfolio_up"),
+            ("Which lending products are growing faster than the bank average while maintaining a lower-than-average default rate?", "growth_risk_benchmark"),
+            ("Identify branches with high manual underwriting, low approval rates and strong eligible-customer volumes.", "underwriting_opportunity"),
+            ("Which portfolio has the best growth-to-risk trade-off, and what factors explain its performance?", "growth_risk_tradeoff"),
+            ("Analyse overall lending performance and highlight the three most important opportunities for management.", "top_opportunities"),
+        ]
+        for question, expected_route in cases:
+            with self.subTest(question=question):
+                answer, result, route = answer_historical_bi(question, self.history)
+                self.assertEqual(route, f"historical:executive:{expected_route}")
+                self.assertTrue(answer)
+                self.assertIsInstance(result, pd.DataFrame)
         self.assertNotIn("Portfolio Amount", answer)
 
     def test_unspecified_portfolio_growth_defaults_to_amount(self):

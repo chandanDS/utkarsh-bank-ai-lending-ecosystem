@@ -526,15 +526,301 @@ def _explicit_month_account_comparison(question: str, history: pd.DataFrame):
     return answer, result, "historical:new_accounts:explicit_months"
 
 
+def _branch_growth_risk_leakage_analysis(question: str, history: pd.DataFrame):
+    """Find branches growing their book while risk and funnel leakage deteriorate."""
+    q = question.lower()
+    required = (
+        "branch" in q
+        and "portfolio growth" in q
+        and ("default risk" in q or "default rate" in q)
+        and "funnel leakage" in q
+        and any(term in q for term in ("worsening", "worsen", "deteriorat", "increasing"))
+    )
+    if not required:
+        return None
+
+    latest = history["month"].max()
+    prior = latest - pd.DateOffset(years=1)
+    current = _aggregate(history, [latest], "branch_code")
+    previous = _aggregate(history, [prior], "branch_code")
+    result = current.merge(previous, on="branch_code", suffixes=("_current", "_previous"))
+    city_lookup = (
+        history.loc[history["month"] == latest, ["branch_code", "city"]]
+        .drop_duplicates("branch_code")
+    )
+    result = result.merge(city_lookup, on="branch_code", how="left")
+    result["Portfolio growth %"] = 100 * (
+        result["portfolio_amount_current"] - result["portfolio_amount_previous"]
+    ) / result["portfolio_amount_previous"].replace(0, pd.NA)
+    result["Default rate current %"] = result["default_rate_pct_current"]
+    result["Default rate previous %"] = result["default_rate_pct_previous"]
+    result["Default change pp"] = (
+        result["default_rate_pct_current"] - result["default_rate_pct_previous"]
+    )
+    result["Funnel leakage current %"] = 100 * (
+        1 - result["disbursed_current"] / result["leads_current"].clip(lower=1)
+    )
+    result["Funnel leakage previous %"] = 100 * (
+        1 - result["disbursed_previous"] / result["leads_previous"].clip(lower=1)
+    )
+    result["Funnel leakage change pp"] = (
+        result["Funnel leakage current %"] - result["Funnel leakage previous %"]
+    )
+    result = result[
+        (result["Portfolio growth %"] > 0)
+        & (result["Default change pp"] > 0)
+        & (result["Funnel leakage change pp"] > 0)
+    ].copy()
+    result = result.sort_values(
+        ["Default change pp", "Funnel leakage change pp"], ascending=False, kind="stable"
+    )
+    result = result[[
+        "branch_code", "city", "Portfolio growth %", "Default rate current %",
+        "Default change pp", "Funnel leakage current %", "Funnel leakage change pp",
+    ]].rename(columns={"branch_code": "Branch", "city": "City"}).round(2)
+
+    if result.empty:
+        answer = (
+            "No branch currently has positive portfolio growth together with both a worsening "
+            "default rate and worsening funnel leakage."
+        )
+    else:
+        leaders = ", ".join(
+            f"{row.City} ({row.Branch})" for row in result.head(3).itertuples()
+        )
+        answer = (
+            f"{len(result)} branch{'es' if len(result) != 1 else ''} meet all three conditions. "
+            f"The highest-priority branches are {leaders}."
+        )
+    return answer, result, "historical:executive:branch_growth_risk_leakage"
+
+
+def _city_performance_comparison(question: str, history: pd.DataFrame):
+    """Compare two named cities across growth, default risk and funnel efficiency."""
+    q = question.lower()
+    named_cities = [
+        city for city in sorted(history["city"].dropna().astype(str).unique())
+        if re.search(rf"\b{re.escape(city.lower())}\b", q)
+    ]
+    required = (
+        len(named_cities) == 2
+        and any(term in q for term in ("compare", "versus", " vs "))
+        and "portfolio growth" in q
+        and ("default risk" in q or "default rate" in q)
+        and ("lead-conversion" in q or "lead conversion" in q)
+    )
+    if not required:
+        return None
+
+    latest = history["month"].max()
+    prior = latest - pd.DateOffset(years=1)
+    rows = []
+    for city in named_cities:
+        scoped = history[history["city"].astype(str).str.casefold() == city.casefold()]
+        current = _aggregate(scoped, [latest]).iloc[0]
+        previous = _aggregate(scoped, [prior]).iloc[0]
+        growth = 100 * (current.portfolio_amount - previous.portfolio_amount) / max(previous.portfolio_amount, 1)
+        default_change = current.default_rate_pct - previous.default_rate_pct
+        conversion_change = current.lead_conversion_pct - previous.lead_conversion_pct
+        rows.append({
+            "City": city,
+            "Portfolio growth %": growth,
+            "Default rate current %": current.default_rate_pct,
+            "Default change pp": default_change,
+            "Lead conversion current %": current.lead_conversion_pct,
+            "Lead conversion change pp": conversion_change,
+        })
+    result = pd.DataFrame(rows)
+    # Transparent equal-weight score: reward growth and current conversion, penalize current default risk.
+    result["Performance score"] = (
+        result["Portfolio growth %"]
+        + result["Lead conversion current %"]
+        - result["Default rate current %"]
+    )
+    result = result.sort_values("Performance score", ascending=False, kind="stable").round(2)
+    best = result.iloc[0]
+    other = result.iloc[1]
+    answer = (
+        f"{best['City']} is the better-performing branch on the balanced comparison: portfolio growth "
+        f"{best['Portfolio growth %']:+.2f}%, default-rate movement {best['Default change pp']:+.2f} pp, "
+        f"and lead-conversion movement {best['Lead conversion change pp']:+.2f} pp. "
+        f"{other['City']} records {other['Portfolio growth %']:+.2f}%, "
+        f"{other['Default change pp']:+.2f} pp and {other['Lead conversion change pp']:+.2f} pp respectively. "
+        "The balanced score equally rewards portfolio growth and current lead conversion, and penalizes current default rate."
+    )
+    return answer, result, "historical:executive:city_performance_comparison"
+
+
+def _executive_multi_kpi_analysis(question: str, history: pd.DataFrame):
+    """Answer recurring executive questions from governed, reconciled KPI formulas."""
+    q = question.lower()
+    latest = history["month"].max()
+    prior = latest - pd.DateOffset(years=1)
+
+    def comparison(dimension: str) -> pd.DataFrame:
+        current = _aggregate(history, [latest], dimension)
+        previous = _aggregate(history, [prior], dimension)
+        frame = current.merge(previous, on=dimension, suffixes=("_current", "_previous"))
+        frame["Portfolio growth %"] = 100 * (
+            frame["portfolio_amount_current"] - frame["portfolio_amount_previous"]
+        ) / frame["portfolio_amount_previous"].replace(0, pd.NA)
+        frame["Default change pp"] = frame["default_rate_pct_current"] - frame["default_rate_pct_previous"]
+        frame["Lead conversion change pp"] = (
+            frame["lead_conversion_pct_current"] - frame["lead_conversion_pct_previous"]
+        )
+        frame["Approval-to-disbursal current %"] = 100 * frame["disbursed_current"] / frame["approved_current"].clip(lower=1)
+        frame["Approval-to-disbursal previous %"] = 100 * frame["disbursed_previous"] / frame["approved_previous"].clip(lower=1)
+        frame["Approval-to-disbursal change pp"] = (
+            frame["Approval-to-disbursal current %"] - frame["Approval-to-disbursal previous %"]
+        )
+        frame["New-account growth %"] = 100 * (
+            frame["new_accounts_current"] - frame["new_accounts_previous"]
+        ) / frame["new_accounts_previous"].replace(0, pd.NA)
+        frame["Manual underwriting %"] = 100 * frame["manual_reviews_current"] / frame["account_count_current"].clip(lower=1)
+        frame["Approval rate %"] = 100 * frame["approved_current"] / frame["credit_evaluated_current"].clip(lower=1)
+        return frame
+
+    if (
+        "product" in q and "grown" in q and "approval" in q and "disbursal" in q
+        and any(term in q for term in ("decline", "fall", "drop"))
+    ):
+        frame = comparison("product")
+        result = frame[
+            (frame["Portfolio growth %"] > 0) & (frame["Approval-to-disbursal change pp"] < 0)
+        ][["product", "Portfolio growth %", "Approval-to-disbursal current %", "Approval-to-disbursal change pp"]]
+        result = result.rename(columns={"product": "Product"}).sort_values(
+            "Approval-to-disbursal change pp", kind="stable"
+        ).round(2)
+        answer = (
+            "No product meets both conditions."
+            if result.empty else
+            f"{len(result)} product{'s' if len(result) != 1 else ''} grew YoY while approval-to-disbursal conversion declined; "
+            f"{result.iloc[0]['Product']} has the largest conversion deterioration."
+        )
+        return answer, result, "historical:executive:product_growth_conversion"
+
+    if "branch" in q and "lead" in q and "weak" in q and "disbursal" in q:
+        frame = comparison("branch_code")
+        lead_cutoff = frame["leads_current"].median()
+        conversion_cutoff = frame["lead_conversion_pct_current"].median()
+        result = frame[
+            (frame["leads_current"] >= lead_cutoff)
+            & (frame["lead_conversion_pct_current"] < conversion_cutoff)
+        ][["branch_code", "leads_current", "disbursed_current", "lead_conversion_pct_current"]]
+        result = result.rename(columns={
+            "branch_code": "Branch", "leads_current": "Leads", "disbursed_current": "Disbursed",
+            "lead_conversion_pct_current": "Lead conversion %",
+        }).sort_values("Lead conversion %", kind="stable").round(2)
+        answer = (
+            "No branch has above-median leads together with below-median conversion."
+            if result.empty else
+            f"{len(result)} branches have strong lead volume but weak disbursal conversion; "
+            f"{result.iloc[0]['Branch']} has the lowest conversion among them."
+        )
+        return answer, result, "historical:executive:branch_lead_conversion"
+
+    if "branch" in q and "new-account growth" in q and "declin" in q and "portfolio" in q and "increas" in q:
+        frame = comparison("branch_code")
+        result = frame[
+            (frame["New-account growth %"] < 0) & (frame["Portfolio growth %"] > 0)
+        ][["branch_code", "New-account growth %", "Portfolio growth %"]]
+        result = result.rename(columns={"branch_code": "Branch"}).sort_values(
+            "New-account growth %", kind="stable"
+        ).round(2)
+        answer = (
+            "No branch shows declining new-account growth alongside a growing portfolio."
+            if result.empty else
+            f"{len(result)} branches show declining new-account growth despite portfolio expansion; "
+            f"{result.iloc[0]['Branch']} has the steepest acquisition decline."
+        )
+        return answer, result, "historical:executive:accounts_down_portfolio_up"
+
+    if "product" in q and "bank average" in q and "default" in q and "growing faster" in q:
+        frame = comparison("product")
+        bank_current = _aggregate(history, [latest]).iloc[0]
+        bank_previous = _aggregate(history, [prior]).iloc[0]
+        bank_growth = 100 * (bank_current.portfolio_amount - bank_previous.portfolio_amount) / max(bank_previous.portfolio_amount, 1)
+        bank_default = float(bank_current.default_rate_pct)
+        result = frame[
+            (frame["Portfolio growth %"] > bank_growth)
+            & (frame["default_rate_pct_current"] < bank_default)
+        ][["product", "Portfolio growth %", "default_rate_pct_current"]]
+        result = result.rename(columns={"product": "Product", "default_rate_pct_current": "Default rate %"})
+        result["Bank growth benchmark %"] = bank_growth
+        result["Bank default benchmark %"] = bank_default
+        result = result.sort_values("Portfolio growth %", ascending=False, kind="stable").round(2)
+        answer = (
+            "No product currently beats both bank benchmarks."
+            if result.empty else
+            f"{len(result)} products grow faster than the bank while maintaining lower default risk; "
+            f"{result.iloc[0]['Product']} leads on growth."
+        )
+        return answer, result, "historical:executive:growth_risk_benchmark"
+
+    if "branch" in q and "manual underwriting" in q and "approval" in q:
+        frame = comparison("branch_code")
+        result = frame[
+            (frame["Manual underwriting %"] >= frame["Manual underwriting %"].median())
+            & (frame["Approval rate %"] < frame["Approval rate %"].median())
+            & (frame["leads_current"] >= frame["leads_current"].median())
+        ][["branch_code", "Manual underwriting %", "Approval rate %", "leads_current"]]
+        result = result.rename(columns={"branch_code": "Branch", "leads_current": "Eligible lead volume"})
+        result = result.sort_values("Manual underwriting %", ascending=False, kind="stable").round(2)
+        answer = (
+            "No branch meets all three underwriting-opportunity conditions."
+            if result.empty else
+            f"{len(result)} branches combine high manual underwriting, low approval and strong lead volume; "
+            f"{result.iloc[0]['Branch']} has the highest manual-underwriting rate."
+        )
+        return answer, result, "historical:executive:underwriting_opportunity"
+
+    if "portfolio" in q and "growth-to-risk" in q and any(term in q for term in ("best", "trade-off", "tradeoff")):
+        frame = comparison("product")
+        frame["Growth-risk score"] = frame["Portfolio growth %"] - frame["default_rate_pct_current"]
+        result = frame[["product", "Portfolio growth %", "default_rate_pct_current", "Growth-risk score"]]
+        result = result.rename(columns={"product": "Product", "default_rate_pct_current": "Default rate %"})
+        result = result.sort_values("Growth-risk score", ascending=False, kind="stable").round(2)
+        leader = result.iloc[0]
+        answer = (
+            f"{leader['Product']} has the best measured growth-to-risk trade-off: "
+            f"{leader['Portfolio growth %']:+.2f}% growth with a {leader['Default rate %']:.2f}% default rate."
+        )
+        return answer, result, "historical:executive:growth_risk_tradeoff"
+
+    if "overall lending performance" in q and ("three" in q or "3" in q) and "opportunit" in q:
+        current = _aggregate(history, [latest]).iloc[0]
+        previous = _aggregate(history, [prior]).iloc[0]
+        measures = pd.DataFrame([
+            {"Opportunity": "Reduce funnel leakage", "Current %": 100 * (1 - current.disbursed / max(current.leads, 1)), "Change pp": -(current.lead_conversion_pct - previous.lead_conversion_pct), "Suggested module": "Propensity and Credit decisioning"},
+            {"Opportunity": "Reduce default risk", "Current %": current.default_rate_pct, "Change pp": current.default_rate_pct - previous.default_rate_pct, "Suggested module": "Default & early warning"},
+            {"Opportunity": "Automate manual underwriting", "Current %": 100 * current.manual_reviews / max(current.account_count, 1), "Change pp": 100 * current.manual_reviews / max(current.account_count, 1) - 100 * previous.manual_reviews / max(previous.account_count, 1), "Suggested module": "Credit decisioning"},
+            {"Opportunity": "Reduce attrition", "Current %": current.churn_rate_pct, "Change pp": current.churn_rate_pct - previous.churn_rate_pct, "Suggested module": "Churn prediction"},
+        ])
+        result = measures.sort_values(["Current %", "Change pp"], ascending=False, kind="stable").head(3).round(2)
+        answer = "The three largest measured opportunities are " + ", ".join(result["Opportunity"].str.lower()) + "."
+        return answer, result, "historical:executive:top_opportunities"
+    return None
+
+
 def answer_historical_bi(question: str, history: pd.DataFrame):
     q = question.lower().strip()
     markers = (
         "growth", "driver", "drill down", "drilldown", "month", "quarter", "yoy", "mom", "qoq",
         "last year", "last quarter", "trend", "new account", "performing", "funnel", "leakage",
         "improve", "increase", "accounts opened", "account opened", "september", "august",
+        "underwriting", "trade-off", "tradeoff", "opportunities", "lead", "grown", "growing",
     )
     if history.empty or not any(marker in q for marker in markers):
         return None
+    branch_growth_risk = _branch_growth_risk_leakage_analysis(q, history)
+    if branch_growth_risk is not None:
+        return branch_growth_risk
+    city_comparison = _city_performance_comparison(q, history)
+    if city_comparison is not None:
+        return city_comparison
+    multi_kpi = _executive_multi_kpi_analysis(q, history)
+    if multi_kpi is not None:
+        return multi_kpi
     portfolio_improvement = _portfolio_improvement_analysis(q, history)
     if portfolio_improvement is not None:
         return portfolio_improvement
