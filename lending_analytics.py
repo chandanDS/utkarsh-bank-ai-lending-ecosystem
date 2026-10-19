@@ -63,7 +63,10 @@ def _prediction_output_request(
     question: str, scoped: pd.DataFrame
 ) -> tuple[str, pd.DataFrame, str] | None:
     """Return governed customer-level AI/ML outputs without bypassing caller scope."""
-    detail_markers = ("list", "show", "data", "record", "output", "customer", "who are")
+    detail_markers = (
+        "list", "show", "data", "record", "output", "customer", "who are",
+        "what are", "candidates",
+    )
     if not any(marker in question for marker in detail_markers):
         return None
 

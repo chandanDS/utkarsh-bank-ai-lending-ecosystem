@@ -157,6 +157,27 @@ class ConversationalBiTests(unittest.TestCase):
         self.assertTrue((result["default_probability_90d"] >= .45).all())
         self.assertIn("Delhi (BR002)", answer)
 
+    def test_kochi_propensity_leads_returns_scoped_prediction_rows(self):
+        portfolio = self.df.copy()
+        portfolio.loc[portfolio["customer_id"] == "3", ["branch_code", "city", "propensity"]] = [
+            "BR011", "Kochi", .82
+        ]
+        answer, result, route = answer_bi("what are the propensity leads for kochi branch", portfolio)
+        self.assertEqual(route, "ai_ml_output:propensity")
+        self.assertFalse(result.empty)
+        self.assertTrue((result["branch_code"] == "BR011").all())
+        self.assertTrue((result["propensity"] >= .60).all())
+        self.assertIn("Kochi (BR011)", answer)
+
+    def test_kochi_credit_decisioning_leads_returns_scoped_prediction_rows(self):
+        portfolio = self.df.copy()
+        portfolio.loc[portfolio["customer_id"] == "3", ["branch_code", "city"]] = ["BR011", "Kochi"]
+        answer, result, route = answer_bi("what are the credit decisioning leads for kochi branch", portfolio)
+        self.assertEqual(route, "ai_ml_output:credit_decisioning")
+        self.assertFalse(result.empty)
+        self.assertTrue((result["branch_code"] == "BR011").all())
+        self.assertIn("Kochi (BR011)", answer)
+
     def test_prediction_output_cannot_broaden_existing_rbac_scope(self):
         scoped = pd.DataFrame([{
             "customer_id": "C2", "name": "Diya Patel", "branch_code": "BR001",
