@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from hybrid_bi import answer_hybrid_bi, execute_governed_sql, prompt_injection_reason, should_display_result_table, validate_sql
+from hybrid_bi import answer_hybrid_bi, data_mutation_reason, execute_governed_sql, prompt_injection_reason, should_display_result_table, validate_sql
 
 
 class FakeCompletions:
@@ -67,6 +67,20 @@ class HybridBiTests(unittest.TestCase):
         self.assertEqual(result.route, "guardrail:prompt_injection")
         self.assertTrue(result.data.empty)
         self.assertEqual(result.usage["Total"], 0)
+
+    def test_portfolio_update_attempt_is_blocked_as_unauthorized(self):
+        question = "update personal loan portfolio to 0"
+        self.assertIsNotNone(data_mutation_reason(question))
+        before = self.df.copy(deep=True)
+        result = answer_hybrid_bi(question, self.df)
+        self.assertEqual(result.route, "guardrail:read_only_authorization")
+        self.assertIn("do not have authority", result.answer)
+        self.assertIn("no portfolio value was changed", result.answer)
+        self.assertEqual(result.usage["Total"], 0)
+        pd.testing.assert_frame_equal(self.df, before)
+
+    def test_analytical_change_question_is_not_mistaken_for_mutation(self):
+        self.assertIsNone(data_mutation_reason("change in Personal Loan portfolio compared with last year"))
 
     def test_ai_ml_output_query_uses_governed_zero_token_path(self):
         predictions = self.df.copy()

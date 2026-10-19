@@ -62,6 +62,22 @@ PROMPT_INJECTION_PATTERNS = (
     re.compile(r"\b(jailbreak|developer mode|do anything now)\b", re.I),
 )
 
+DATA_MUTATION_PATTERNS = (
+    re.compile(r"^\s*(?:please\s+)?(?:update|set|overwrite|modify|delete|remove|insert)\b", re.I),
+    re.compile(r"^\s*(?:please\s+)?change\b.+\b(?:to|into)\s+(?:₹?\s*)?[\d.]+", re.I),
+    re.compile(r"^\s*(?:please\s+)?make\b.+\b(?:zero|0|null|blank)\b", re.I),
+    re.compile(r"\b(?:update|delete\s+from|insert\s+into|alter\s+table|drop\s+table)\b.+\bportfolio\b", re.I),
+)
+
+
+def data_mutation_reason(question: str) -> str | None:
+    """Detect attempts to change governed portfolio data through the read-only BI channel."""
+    return (
+        "Unauthorized data-modification request detected."
+        if any(pattern.search(question) for pattern in DATA_MUTATION_PATTERNS)
+        else None
+    )
+
 
 def prompt_injection_reason(question: str) -> str | None:
     if len(question) > 2_000:
@@ -429,6 +445,13 @@ def answer_hybrid_bi(
     insight_model: str = DEFAULT_INSIGHT_MODEL,
     client: Any = None,
 ) -> HybridBIResult:
+    mutation_reason = data_mutation_reason(question)
+    if mutation_reason:
+        return HybridBIResult(
+            "You do not have authority to modify governed banking data. This chatbot provides read-only "
+            "analytics, and no portfolio value was changed.",
+            pd.DataFrame(), "guardrail:read_only_authorization", zero_usage(),
+        )
     guardrail_reason = prompt_injection_reason(question)
     if guardrail_reason:
         return HybridBIResult(
