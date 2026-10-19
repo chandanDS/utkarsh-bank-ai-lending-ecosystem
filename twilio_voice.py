@@ -44,8 +44,17 @@ def authorized_test_numbers() -> tuple[str, ...]:
     return valid or (TEST_NUMBER,)
 
 
-def is_authorized_test_number(phone: str) -> bool:
-    return phone in authorized_test_numbers()
+def normalize_indian_mobile(phone: str) -> str:
+    """Validate an Indian E.164 mobile number and return the internal 10-digit form."""
+    compact = re.sub(r"[\s()-]", "", str(phone or "").strip())
+    if not re.fullmatch(r"\+91[6-9]\d{9}", compact):
+        raise ValueError("Enter an Indian mobile number in E.164 format, for example +919876543210.")
+    return compact[3:]
+
+
+def is_authorized_test_number(phone: str, authorized_numbers=None) -> bool:
+    allowed = authorized_test_numbers() if authorized_numbers is None else tuple(authorized_numbers)
+    return phone in allowed
 
 
 def build_call_request(phone=TEST_NUMBER):

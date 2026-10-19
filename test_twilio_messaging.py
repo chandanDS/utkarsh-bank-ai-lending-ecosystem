@@ -4,6 +4,7 @@ from urllib.parse import parse_qs
 
 from campaign_links import TEST_NUMBER
 from twilio_messaging import build_message_request, configuration_status
+from twilio_voice import normalize_indian_mobile
 
 
 class TwilioMessagingTests(unittest.TestCase):
@@ -44,6 +45,21 @@ class TwilioMessagingTests(unittest.TestCase):
     def test_other_recipient_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "authorized test-number allowlist"):
             build_message_request("SMS", "Test message", "9999999999")
+
+    @patch("twilio_messaging.setting")
+    def test_session_authorized_recipient_is_accepted(self, mocked_setting):
+        mocked_setting.side_effect = self.setting
+        dynamic_number = "9876543210"
+        request = build_message_request(
+            "WhatsApp", "Test message", dynamic_number, authorized_numbers=(dynamic_number,)
+        )
+        fields = parse_qs(request.data.decode())
+        self.assertEqual(fields["To"], ["whatsapp:+91" + dynamic_number])
+
+    def test_dynamic_recipient_requires_indian_e164_format(self):
+        self.assertEqual(normalize_indian_mobile("+919876543210"), "9876543210")
+        with self.assertRaisesRegex(ValueError, "E.164"):
+            normalize_indian_mobile("9876543210")
 
 
 if __name__ == "__main__":

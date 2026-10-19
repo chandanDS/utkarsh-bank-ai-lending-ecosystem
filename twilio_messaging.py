@@ -18,8 +18,10 @@ def configuration_status(channel: str) -> list[str]:
     return [name for name in required if not setting(name)]
 
 
-def build_message_request(channel: str, body: str, phone: str = TEST_NUMBER) -> Request:
-    if not is_authorized_test_number(phone):
+def build_message_request(
+    channel: str, body: str, phone: str = TEST_NUMBER, authorized_numbers=None
+) -> Request:
+    if not is_authorized_test_number(phone, authorized_numbers):
         raise ValueError("POC messaging is restricted to the authorized test-number allowlist.")
     if channel not in {"SMS", "WhatsApp"}:
         raise ValueError("Unsupported Twilio messaging channel.")
@@ -53,9 +55,11 @@ def build_message_request(channel: str, body: str, phone: str = TEST_NUMBER) -> 
     )
 
 
-def send_test_message(channel: str, body: str, phone: str = TEST_NUMBER) -> tuple[str | None, str | None]:
+def send_test_message(
+    channel: str, body: str, phone: str = TEST_NUMBER, authorized_numbers=None
+) -> tuple[str | None, str | None]:
     try:
-        with urlopen(build_message_request(channel, body, phone), timeout=15) as response:
+        with urlopen(build_message_request(channel, body, phone, authorized_numbers), timeout=15) as response:
             result = json.load(response)
     except HTTPError as exc:
         try:
