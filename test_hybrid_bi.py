@@ -38,10 +38,26 @@ class HybridBiTests(unittest.TestCase):
             {"customer_id": "1", "branch_code": "BR001", "city": "Mumbai", "product": "Home Loan", "risk": .8, "dpd": 60, "outstanding": 100, "collection_amount_due": 10, "collection_amount_received": 5, "segment": "manual-review", "churn_probability": .7, "cross_sell_score": .4, "propensity": .5},
             {"customer_id": "2", "branch_code": "BR001", "city": "Mumbai", "product": "Personal Loan", "risk": .2, "dpd": 0, "outstanding": 200, "collection_amount_due": 0, "collection_amount_received": 0, "segment": "pre-approved", "churn_probability": .2, "cross_sell_score": .8, "propensity": .8},
         ])
+        self.df["name"] = ["A", "B"]
+        self.df["default_probability_90d"] = [.80, .20]
+        self.df["current_account_status"] = ["Defaulted", "Standard"]
+        self.df["delinquency_events_12m"] = [2, 0]
+        self.df["utilization"] = [.90, .30]
+        self.df["bureau"] = [620, 760]
+        self.df["aa_cashflow"] = [.65, 1.10]
+        self.df["preferred_channel"] = ["SMS", "WhatsApp"]
+        self.df["contact_hour"] = [11, 15]
 
     def test_simple_query_uses_zero_token_fast_path(self):
         result = answer_hybrid_bi("show total outstanding portfolio", self.df)
         self.assertTrue(result.route.startswith("deterministic:"))
+        self.assertEqual(result.usage["Total"], 0)
+
+    def test_total_business_of_bank_never_asks_amount_clarification(self):
+        result = answer_hybrid_bi("what is the total business of bank as a whole", self.df)
+        self.assertEqual(result.route, "deterministic:portfolio")
+        self.assertIn("Outstanding lending business", result.answer)
+        self.assertNotIn("requested_amount", result.answer)
         self.assertEqual(result.usage["Total"], 0)
 
     def test_prompt_injection_is_blocked_before_llm_or_sql(self):
@@ -73,7 +89,7 @@ class HybridBiTests(unittest.TestCase):
 
     def test_complex_query_uses_groq_sql_and_insight(self):
         client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
-        result = answer_hybrid_bi("compare average risk by product", self.df, client=client)
+        result = answer_hybrid_bi("compare median bureau score by product", self.df, client=client)
         self.assertEqual(result.route, "groq_dynamic_sql")
         self.assertEqual(len(result.data), 2)
         self.assertGreater(result.usage["SQL generation"], 0)
@@ -81,7 +97,7 @@ class HybridBiTests(unittest.TestCase):
         self.assertEqual(result.usage["Total"], 175)
 
     def test_complex_query_without_key_fails_cleanly(self):
-        result = answer_hybrid_bi("compare average risk by product", self.df)
+        result = answer_hybrid_bi("compare median bureau score by product", self.df)
         self.assertEqual(result.route, "groq_unavailable")
         self.assertIn("GROQ_API_KEY", result.answer)
 
@@ -184,6 +200,48 @@ class HybridBiTests(unittest.TestCase):
         self.assertEqual(int(followup.data["customer_count"].sum()), 1)
         self.assertIn("reconciles to 1", followup.answer)
         self.assertEqual(followup.usage["Total"], 0)
+
+    def test_management_demo_story_preserves_product_and_branch_context(self):
+        history = []
+
+        def ask(question):
+            response = answer_hybrid_bi(question, self.df, history)
+            history.extend([
+                {"role": "user", "content": question},
+                {"role": "assistant", "content": response.answer,
+                 "data": response.data.to_dict("records"), "route": response.route},
+            ])
+            return response
+
+        total = ask("what is the total business for bank as a whole")
+        self.assertEqual(total.route, "deterministic:portfolio")
+        self.assertIn("₹0.00 crore", total.answer)
+
+        breakup = ask("give me breakup")
+        self.assertEqual(breakup.route, "deterministic:portfolio_breakdown")
+        self.assertEqual(set(breakup.data["product"]), {"Home Loan", "Personal Loan"})
+
+        contributor = ask("which branch contributes most to personal loan")
+        self.assertEqual(contributor.route, "deterministic:branch_product_contribution")
+        self.assertEqual(contributor.data.iloc[0]["branch_code"], "BR001")
+
+        default_rate = ask("what is the default rate for branch contributing most to personal loan")
+        self.assertEqual(default_rate.route, "deterministic:branch_default_rate")
+        self.assertEqual(default_rate.data.iloc[0]["branch_code"], "BR001")
+        self.assertEqual(default_rate.data.iloc[0]["product"], "Personal Loan")
+
+        drivers = ask("what are the drivers for maximum default in this branch")
+        self.assertEqual(drivers.route, "deterministic:default_driver_analysis")
+        self.assertIn("BR001", drivers.answer)
+
+        recommendations = ask("what are the recommendations to reduce the default rate for this branch")
+        self.assertEqual(recommendations.route, "deterministic:action_recommendation:default_prediction")
+        self.assertTrue((recommendations.data["branch_code"] == "BR001").all())
+
+    def test_story_context_never_broadens_branch_rbac_scope(self):
+        branch_only = self.df[self.df["branch_code"] == "BR001"].copy()
+        result = answer_hybrid_bi("what is total business for bank as a whole", branch_only)
+        self.assertEqual(float(result.data["outstanding"].sum()), 300.0)
 
 
 if __name__ == "__main__":

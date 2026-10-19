@@ -44,6 +44,38 @@ class ConversationalBiTests(unittest.TestCase):
     def test_highest_outstanding(self):
         self.assert_branch_answer("which branch has highest outstanding portfolio", "BR002", "branch_outstanding")
 
+    def test_mumbai_personal_loan_portfolio_applies_product_city_and_fy_scope(self):
+        answer, result, route = answer_bi(
+            "what is the personal loan portfolio for mumbai branch in this FY", self.df
+        )
+        self.assertEqual(route, "portfolio")
+        self.assertIn("₹0.20 crore", answer)
+        self.assertIn("Personal Loan", answer)
+        self.assertIn("BR001", answer)
+        self.assertIn("FY ", answer)
+        self.assertEqual(result["product"].tolist(), ["Personal Loan"])
+
+    def test_total_business_uses_outstanding_not_requested_or_offer_amount(self):
+        portfolio = self.df.copy()
+        portfolio["requested_amount"] = [99_000_000, 88_000_000, 77_000_000]
+        portfolio["amount"] = [9_000_000, 8_000_000, 7_000_000]
+        answer, _, route = answer_bi("what is total business for bank as a whole", portfolio)
+        self.assertEqual(route, "portfolio")
+        self.assertIn("₹0.80 crore", answer)
+
+    def test_branch_contribution_is_product_specific(self):
+        answer, result, route = answer_bi("which branch contributes most to personal loan", self.df)
+        self.assertEqual(route, "branch_product_contribution")
+        self.assertEqual(result.iloc[0]["branch_code"], "BR001")
+        self.assertIn("Personal Loan", answer)
+
+    def test_average_risk_by_product_is_reported_as_percent(self):
+        answer, result, route = answer_bi("compare average risk by product", self.df)
+        self.assertEqual(route, "product_risk_comparison")
+        self.assertIn("Average risk %", result.columns)
+        self.assertNotIn("average_risk", result.columns)
+        self.assertIn("%", answer)
+
     def test_lowest_collection_efficiency(self):
         self.assert_branch_answer("branch with lowest collection efficiency", "BR001", "branch_collection_efficiency")
 

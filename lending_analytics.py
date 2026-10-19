@@ -20,6 +20,44 @@ BRANCH_LOCATIONS = {
     "indore": "BR012",
 }
 
+PRODUCT_ALIASES = {
+    "personal loan": "Personal Loan", "personal loans": "Personal Loan", "pl": "Personal Loan",
+    "home loan": "Home Loan", "home loans": "Home Loan", "hl": "Home Loan",
+    "vehicle loan": "Vehicle Loan", "vehicle loans": "Vehicle Loan", "vl": "Vehicle Loan",
+    "education loan": "Education Loan", "education loans": "Education Loan", "el": "Education Loan",
+    "msme loan": "MSME Loan", "msme loans": "MSME Loan", "msme": "MSME Loan",
+    "agri loan": "Agri Loan", "agri loans": "Agri Loan", "agriculture loan": "Agri Loan",
+}
+
+
+def _requested_product(question: str) -> str | None:
+    for alias, product in sorted(PRODUCT_ALIASES.items(), key=lambda item: len(item[0]), reverse=True):
+        if re.search(rf"\b{re.escape(alias)}\b", question):
+            return product
+    return None
+
+
+def _requested_branch(question: str) -> tuple[str | None, str | None]:
+    branch_match = re.search(r"\b(br\d{3})\b", question, re.I)
+    if branch_match:
+        return branch_match.group(1).upper(), None
+    for city, branch_code in BRANCH_LOCATIONS.items():
+        if re.search(rf"\b{re.escape(city)}\b", question):
+            return branch_code, city.title()
+    return None, None
+
+
+def _business_scope(question: str, df: pd.DataFrame) -> tuple[pd.DataFrame, str | None, str | None]:
+    """Apply semantic filters without ever widening the caller's RBAC-scoped frame."""
+    product = _requested_product(question)
+    branch_code, city = _requested_branch(question)
+    scoped = df
+    if product:
+        scoped = scoped[scoped["product"].eq(product)]
+    if branch_code:
+        scoped = scoped[scoped["branch_code"].str.upper().eq(branch_code)]
+    return scoped, product, branch_code or city
+
 
 def _prediction_output_request(
     question: str, scoped: pd.DataFrame
@@ -611,6 +649,62 @@ def answer_bi(question: str, df: pd.DataFrame) -> tuple[str, pd.DataFrame, str]:
         scoped = df[df["branch_code"].str.upper() == code]
         scope_text = f"for {code}"
 
+    business_scoped, requested_product, requested_location = _business_scope(q, df)
+
+    if ("average" in q or "avg" in q) and "risk" in q and ("product" in q or "portfolio" in q):
+        result = df.groupby("product", as_index=False).agg(
+            accounts=("customer_id", "count"),
+            average_risk=("risk", "mean"),
+            median_risk=("risk", "median"),
+            high_risk_accounts=("risk", lambda values: int((values >= .60).sum())),
+        )
+        result["Average risk %"] = (result.pop("average_risk") * 100).round(2)
+        result["Median risk %"] = (result.pop("median_risk") * 100).round(2)
+        result["High-risk share %"] = (100 * result["high_risk_accounts"] / result["accounts"]).round(2)
+        result = result.sort_values("Average risk %", ascending=False, kind="stable")
+        leader = result.iloc[0]
+        answer = (
+            f"{leader['product']} has the highest average predicted risk at "
+            f"{leader['Average risk %']:.2f}%. The comparison reports risk as a percentage, not a rounded 0–1 score."
+        )
+        return answer, result, "product_risk_comparison"
+
+    if "default rate" not in q and "branch" in q and any(term in q for term in ("contribut", "largest", "most")) and requested_product:
+        result = business_scoped.groupby(["branch_code", "city"], as_index=False).agg(
+            accounts=("customer_id", "count"), outstanding=("outstanding", "sum")
+        ).sort_values("outstanding", ascending=False, kind="stable")
+        if result.empty:
+            return f"No authorized {requested_product} records matched this scope.", result, "branch_product_contribution"
+        total = float(result["outstanding"].sum())
+        result["contribution_pct"] = (100 * result["outstanding"] / total).round(2) if total else 0.0
+        top = result.head(1).copy()
+        row = top.iloc[0]
+        return (
+            f"{row.branch_code} ({row.city}) contributes the most to {requested_product}: "
+            f"₹{row.outstanding / 10_000_000:,.2f} crore ({row.contribution_pct:.2f}% of the authorized {requested_product} portfolio).",
+            top,
+            "branch_product_contribution",
+        )
+
+    if "default rate" in q and requested_location:
+        if business_scoped.empty:
+            return "No authorized records matched the requested branch and product scope.", pd.DataFrame(), "branch_default_rate"
+        defaults = int((business_scoped["dpd"] > 30).sum())
+        accounts = len(business_scoped)
+        rate = 100 * defaults / accounts if accounts else 0.0
+        branch_code = str(business_scoped.iloc[0]["branch_code"])
+        city = str(business_scoped.iloc[0]["city"])
+        result = pd.DataFrame([{
+            "branch_code": branch_code, "city": city, "product": requested_product or "All products",
+            "accounts": accounts, "defaulters_dpd_gt_30": defaults, "default_rate_pct": round(rate, 2),
+        }])
+        return (
+            f"{branch_code} ({city}) has a current default rate of {rate:.2f}% "
+            f"({defaults:,} of {accounts:,} accounts with DPD > 30).",
+            result,
+            "branch_default_rate",
+        )
+
     branch_ranking = _branch_ranking(q, scoped)
     if branch_ranking is not None:
         return branch_ranking
@@ -631,12 +725,21 @@ def answer_bi(question: str, df: pd.DataFrame) -> tuple[str, pd.DataFrame, str]:
         result = result[[column for column in detail_columns if column in result.columns]]
         return f"{len(result):,} loans have DPD greater than {threshold} {scope_text}.", result, "delinquency_detail"
 
-    if "outstanding" in q or "portfolio" in q:
-        total = scoped["outstanding"].sum()
-        summary = scoped.groupby("product", as_index=False).agg(
+    if any(term in q for term in ("outstanding", "portfolio", "total business", "lending business", "business amount")):
+        total = business_scoped["outstanding"].sum()
+        summary = business_scoped.groupby("product", as_index=False).agg(
             accounts=("customer_id", "count"), outstanding=("outstanding", "sum")
         ).sort_values("outstanding", ascending=False)
-        return f"Total outstanding portfolio is ₹{total / 10_000_000:,.2f} crore {scope_text}.", summary, "portfolio"
+        summary["share_pct"] = (100 * summary["outstanding"] / total).round(2) if total else 0.0
+        scope_parts = [part for part in (requested_product, requested_location) if part]
+        rendered_scope = " for " + " · ".join(scope_parts) if scope_parts else " for the authorized bank portfolio"
+        fy = pd.Timestamp.today().year if pd.Timestamp.today().month >= 4 else pd.Timestamp.today().year - 1
+        timing = f"as of {pd.Timestamp.today():%b %Y} in FY {fy}–{str(fy + 1)[-2:]}" if "fy" in q or "financial year" in q else "at the current snapshot"
+        return (
+            f"Outstanding lending business{rendered_scope} is ₹{total / 10_000_000:,.2f} crore {timing}.",
+            summary,
+            "portfolio",
+        )
 
     if ("default" in q or "risk" in q) and ("high" in q or "highest" in q):
         result = scoped[scoped["risk"] >= 0.60].sort_values("risk", ascending=False)

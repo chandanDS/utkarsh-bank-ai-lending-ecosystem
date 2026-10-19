@@ -37,6 +37,9 @@ Use clear aliases and ROUND decimal outputs. Aggregate unless customer-level row
 Definitions: high default risk risk>=0.60; delinquent dpd>0; high churn churn_probability>=0.65;
 high propensity propensity>=0.75; cross-sell opportunity cross_sell_score>=0.70;
 approved means segment IN ('pre-approved','pre-qualified'); collection efficiency=100*SUM(received)/SUM(due).
+Canonical amounts: business, portfolio and outstanding mean SUM(outstanding); requested_amount is customer demand;
+amount is the indicative affordability/offer ceiling and must not be used as portfolio business. Risk is stored 0..1
+and should be displayed as 100*AVG(risk) percent. Current default rate means 100*SUM(dpd>30)/COUNT(*).
 If the metric, grouping, comparison, or filter is genuinely ambiguous, ask one concise clarification and leave sql empty.
 RBAC is already applied to portfolio; never broaden or replace its authorization scope."""
 
@@ -226,6 +229,73 @@ def _contextual_defaulter_dpd_breakdown(
     )
 
 
+def _latest_context_branch(history: list[dict[str, Any]] | None) -> str:
+    if not history:
+        return ""
+    for message in reversed(history):
+        if message.get("role") != "assistant":
+            continue
+        for row in message.get("data") or []:
+            candidate = str(row.get("branch_code") or row.get("Branch") or "").upper()
+            if re.fullmatch(r"BR\d{3}", candidate):
+                return candidate
+        match = re.search(r"\bBR\d{3}\b", str(message.get("content", "")), re.I)
+        if match:
+            return match.group(0).upper()
+    return ""
+
+
+def _latest_context_product(history: list[dict[str, Any]] | None) -> str:
+    products = ("Personal Loan", "Home Loan", "Vehicle Loan", "Education Loan", "MSME Loan", "Agri Loan")
+    if not history:
+        return ""
+    for message in reversed(history):
+        text = str(message.get("content", ""))
+        for product in products:
+            if product.lower() in text.lower():
+                return product
+    return ""
+
+
+def _contextual_story_result(
+    question: str, scoped_df: pd.DataFrame, history: list[dict[str, Any]] | None
+) -> HybridBIResult | None:
+    """Resolve executive demo follow-ups from governed prior results, without an LLM guess."""
+    q = question.lower().strip()
+    if not history:
+        return None
+    if re.fullmatch(r"(?:please\s+)?(?:give|show)(?:\s+me)?\s+(?:the\s+)?break(?:up|down)", q):
+        previous = next((m for m in reversed(history) if m.get("role") == "assistant" and str(m.get("route", "")).endswith("portfolio")), None)
+        if previous is None:
+            return None
+        rows = previous.get("data") or []
+        result = pd.DataFrame(rows)
+        if result.empty or "outstanding" not in result:
+            return None
+        total = float(result["outstanding"].sum())
+        result["share_pct"] = (100 * result["outstanding"] / total).round(2) if total else 0.0
+        result = result.sort_values("outstanding", ascending=False, kind="stable")
+        leader = result.iloc[0]
+        answer = (
+            f"{leader['product']} is the largest product portfolio at ₹{leader['outstanding'] / 10_000_000:,.2f} crore "
+            f"({leader['share_pct']:.2f}% of the total). The complete product breakup is shown below."
+        )
+        return HybridBIResult(answer, result, "deterministic:portfolio_breakdown", zero_usage())
+
+    branch = _latest_context_branch(history)
+    referential_branch = "this branch" in q or "branch contributing most" in q or "maximum default in" in q
+    if not branch or not referential_branch:
+        return None
+    product = _latest_context_product(history)
+    enriched = f"{question} {branch}"
+    if product and product.lower() not in q:
+        enriched += f" {product}"
+    answer, data, route = answer_bi(enriched, scoped_df)
+    if route == "clarification":
+        return None
+    return HybridBIResult(answer, data, f"deterministic:{route}", zero_usage())
+
+
 def _usage_value(usage: Any, name: str) -> int:
     return int(getattr(usage, name, 0) or 0) if usage is not None else 0
 
@@ -364,6 +434,9 @@ def answer_hybrid_bi(
             f"I cannot process that request. {guardrail_reason} Ask a banking analytics question using authorized data.",
             pd.DataFrame(), "guardrail:prompt_injection", zero_usage(),
         )
+    contextual_story = _contextual_story_result(question, scoped_df, history)
+    if contextual_story is not None:
+        return contextual_story
     default_drivers = answer_default_driver_analysis(question, scoped_df)
     if default_drivers is not None:
         answer, data, route = default_drivers
