@@ -7,12 +7,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 from urllib.error import HTTPError, URLError
 from engine import authenticate_user, init_db, rows, scored_customers, score, event, upsert_application, retrieve_policy, POLICY_VERSION
-from airtel_voice import TEST_NUMBER, call_window_open, configuration_status, place_test_call
 from campaign_links import TEST_MESSAGE, VOICE_SCRIPT, launch_links
 from lending_analytics import AI_COLUMNS, CAMPAIGN_AUDIENCES, campaign_audience, classify_next_best_action, enrich_portfolio, executive_impact_report, lead_conversion_analytics
 from hybrid_bi import DEFAULT_INSIGHT_MODEL, DEFAULT_MODEL, answer_hybrid_bi, zero_usage
 from historical_analytics import build_historical_portfolio, observe_metrics
-from twilio_voice import authorized_test_numbers, configuration_status as twilio_configuration_status, normalize_indian_mobile, place_test_call as place_twilio_test_call, trial_mode as twilio_trial_mode
+from twilio_voice import authorized_test_numbers, call_window_open, configuration_status as twilio_configuration_status, normalize_indian_mobile, place_test_call as place_twilio_test_call, trial_mode as twilio_trial_mode
 from twilio_messaging import configuration_status as twilio_message_configuration_status, send_test_message
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -1077,7 +1076,6 @@ elif page == "Campaign agent":
     metric_b.metric("Average model score", f"{eligible.campaign_score.mean():.1%}" if len(eligible) else "—")
     metric_c.metric("Branches represented", f"{eligible.branch_code.nunique():,}" if len(eligible) else "0")
     campaign_columns = ["customer_id", "name", "branch_code", "city", "campaign_source", "model_output", "campaign_score", "recommended_product", "recommended_action", "preferred_channel", "contact_hour"]
-    st.dataframe(crore_display(eligible[campaign_columns].head(500)), hide_index=True, width="stretch")
     st.download_button(
         "Download selected campaign audience",
         eligible[campaign_columns].to_csv(index=False),
@@ -1218,25 +1216,6 @@ elif page == "Campaign agent":
                         st.error(str(exc))
                     else:
                         st.error(f"Twilio call failed ({type(exc).__name__}). Check network connectivity and Twilio service status.")
-            st.markdown("#### Airtel IQ test call")
-            st.write("The Airtel call flow should play an approved, generic script and record the recipient's response. No customer data from this demo is sent to Airtel.")
-            missing = configuration_status()
-            if missing:
-                st.warning("Live calling is unavailable. Configure " + ", ".join(missing) + ".")
-            if not call_window_open():
-                st.warning("The configured calling window is closed. Default: 09:00–19:00 India Standard Time.")
-            confirmed = st.checkbox("I confirm this test number is authorized for this call and the Airtel call flow is approved")
-            can_call = test_recipient == TEST_NUMBER and not missing and call_window_open() and confirmed
-            if test_recipient != TEST_NUMBER:
-                st.info(f"Live test calling is restricted to {TEST_NUMBER}.")
-            if st.button("Place Airtel test call", disabled=not can_call, type="primary"):
-                try:
-                    status, body = place_test_call(test_recipient)
-                    event(cid,"campaign","airtel_test_call_requested",f"recipient=******{test_recipient[-4:]}; http_status={status}; no customer attributes shared", "campaign_agent")
-                    st.success(f"Airtel accepted the call request (HTTP {status}). Check Airtel's call status for delivery and outcome.")
-                except (ValueError, HTTPError, URLError, TimeoutError) as exc:
-                    event(cid,"campaign","airtel_test_call_failed",f"recipient=******{test_recipient[-4:]}; error_type={type(exc).__name__}", "campaign_agent")
-                    st.error(f"Call request failed ({type(exc).__name__}). Check endpoint, credentials, payload and Airtel logs.")
 
 elif page == "LMS onboarding":
     st.subheader("Lead capture and onboarding")
