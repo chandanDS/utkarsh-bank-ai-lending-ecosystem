@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 
 import pandas as pd
@@ -17,18 +18,18 @@ REGIONS = {
 # where AI/ML and governed decision automation can create measurable value.
 PAIN_SCENARIO = {
     "manual_review_rate": 0.58,
-    "default_rate": 0.17,
-    "delinquency_rate": 0.29,
-    "churn_rate": 0.24,
+    "default_rate": 0.042,
+    "delinquency_rate": 0.09,
+    "churn_rate": 0.04,
     "lead_rate": 0.55,
     "application_to_lead_rate": 0.62,
     "evaluation_to_application_rate": 0.84,
     "approval_to_evaluation_rate": 0.72,
-    "disbursal_to_lead_rate": 0.18,
+    "disbursal_to_lead_rate": 0.035,
     "cross_sell_eligible_rate": 0.42,
     "cross_sell_contact_rate": 0.78,
-    "cross_sell_acceptance_rate": 0.16,
-    "collection_efficiency": 0.61,
+    "cross_sell_acceptance_rate": 0.065,
+    "collection_efficiency": 0.90,
     "good_customer_rejection_rate": 0.06,
     "risky_customer_approval_rate": 0.04,
 }
@@ -37,6 +38,27 @@ PAIN_SCENARIO = {
 def _stable_fraction(*parts: object) -> float:
     digest = hashlib.sha256("|".join(map(str, parts)).encode()).hexdigest()
     return int(digest[:8], 16) / 0xFFFFFFFF
+
+
+def _proportional_counts(weights: pd.Series, total: int) -> pd.Series:
+    """Allocate an integer total across rows without distorting portfolio-level rates."""
+    numeric = pd.to_numeric(weights, errors="coerce").fillna(0).clip(lower=0)
+    capacity = numeric.round().astype(int)
+    target = max(0, min(int(total), int(capacity.sum())))
+    if target == 0 or numeric.sum() == 0:
+        return pd.Series(0, index=weights.index, dtype=int)
+    raw = numeric / numeric.sum() * target
+    allocated = raw.apply(math.floor).astype(int).clip(upper=capacity)
+    remaining = target - int(allocated.sum())
+    if remaining:
+        order = (raw - allocated).sort_values(ascending=False, kind="stable").index
+        for index in order:
+            if remaining == 0:
+                break
+            if allocated.at[index] < capacity.at[index]:
+                allocated.at[index] += 1
+                remaining -= 1
+    return allocated
 
 
 def build_historical_portfolio(df: pd.DataFrame, months: int = 36) -> pd.DataFrame:
@@ -121,6 +143,30 @@ def build_historical_portfolio(df: pd.DataFrame, months: int = 36) -> pd.DataFra
     latest_mask = history["month"] == latest
     for metric in ["portfolio_amount", "account_count", *count_metrics, "collection_due", "collection_received"]:
         history.loc[latest_mask, metric] = current[metric].to_numpy()
+    # Reconcile rate KPIs at each monthly snapshot. Allocating counts across the
+    # dimensional rows prevents rounding in small cells from overstating bank rates.
+    for month_index, month in enumerate(periods):
+        mask = history["month"].eq(month)
+        progress = month_index / max(len(periods) - 1, 1)
+        accounts = history.loc[mask, "account_count"]
+        leads = history.loc[mask, "leads"]
+        contacts = history.loc[mask, "cross_sell_contacted"]
+        history.loc[mask, "default_accounts"] = _proportional_counts(
+            accounts, round(float(accounts.sum()) * (0.038 + 0.004 * progress))
+        ).to_numpy()
+        history.loc[mask, "churned_customers"] = _proportional_counts(
+            accounts, round(float(accounts.sum()) * (0.036 + 0.004 * progress))
+        ).to_numpy()
+        history.loc[mask, "disbursed"] = _proportional_counts(
+            leads, round(float(leads.sum()) * (0.032 + 0.003 * progress))
+        ).to_numpy()
+        history.loc[mask, "cross_sell_accepted"] = _proportional_counts(
+            contacts, round(float(contacts.sum()) * (0.055 + 0.010 * progress))
+        ).to_numpy()
+        collection_efficiency = 0.895 + 0.005 * progress
+        history.loc[mask, "collection_received"] = (
+            history.loc[mask, "collection_due"] * collection_efficiency
+        ).to_numpy()
     history["default_rate_pct"] = (100 * history["default_accounts"] / history["account_count"].clip(lower=1)).round(2)
     history["delinquency_rate_pct"] = (100 * history["delinquent_accounts"] / history["account_count"].clip(lower=1)).round(2)
     history["churn_rate_pct"] = (100 * history["churned_customers"] / history["account_count"].clip(lower=1)).round(2)

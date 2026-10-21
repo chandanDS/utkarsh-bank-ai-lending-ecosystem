@@ -191,13 +191,53 @@ def enrich_portfolio(df: pd.DataFrame) -> pd.DataFrame:
     result["outstanding"] = pd.to_numeric(result["outstanding"], errors="coerce").fillna(0.0)
     result["collection_amount_due"] = pd.to_numeric(result["collection_amount_due"], errors="coerce").fillna(0.0)
     result["collection_amount_received"] = pd.to_numeric(result["collection_amount_received"], errors="coerce").fillna(0.0)
+    customer_number = pd.to_numeric(
+        result["customer_id"].str.extract(r"(\d+)", expand=False), errors="coerce"
+    ).fillna(0).astype(int)
+    # Reproducible, production-shaped demo calibration. The raw synthetic rows stay
+    # immutable; every module receives this governed runtime view.
+    risk_bucket = (customer_number * 37).mod(100)
+    result["dpd"] = 0
+    result.loc[risk_bucket.lt(4), "dpd"] = risk_bucket[risk_bucket.lt(4)].map(
+        {0: 60, 1: 60, 2: 90, 3: 90}
+    )
+    early_warning = risk_bucket.between(4, 11)
+    result.loc[early_warning, "dpd"] = risk_bucket[early_warning].map(
+        {4: 5, 5: 5, 6: 15, 7: 15, 8: 30, 9: 30, 10: 30, 11: 30}
+    )
+    result["delinquencies"] = result["dpd"].ge(30).astype(int)
+    due_mask = result["dpd"].gt(0)
+    scheduled_emi = pd.to_numeric(
+        result.get("emi_amount", result.get("current_emi", pd.Series(1, index=result.index))),
+        errors="coerce",
+    ).fillna(1).clip(lower=1)
+    scheduled_due = scheduled_emi * ((result["dpd"] / 30).clip(lower=1).apply(math.ceil))
+    result["collection_amount_due"] = scheduled_due.where(due_mask, 0.0).round(2)
+    collection_efficiency = 0.88 + risk_bucket.mod(7) * 0.006
+    result["collection_amount_received"] = (
+        result["collection_amount_due"] * collection_efficiency
+    ).where(due_mask, 0.0).round(2)
+
+    funnel_fields = {"consent", "propensity", "risk", "kyc", "segment"}
+    if funnel_fields.issubset(result.columns):
+        lead_mask = (result["consent"] == 1) & (result["propensity"] >= .60) & (result["risk"] < .60)
+        quote_mask = (
+            lead_mask & customer_number.mod(100).lt(72) & result["kyc"].eq(1)
+            & result["segment"].isin(["pre-approved", "pre-qualified", "underwriting"])
+        )
+        target_disbursals = round(int(lead_mask.sum()) * 0.035)
+        ranked_quotes = result.loc[quote_mask].assign(
+            _selection_rank=(customer_number.loc[quote_mask] * 7919).mod(100_003)
+        ).sort_values("_selection_rank", kind="stable")
+        result["response"] = 0
+        result.loc[ranked_quotes.head(target_disbursals).index, "response"] = 1
     result["churn_probability"] = (
-        0.12
-        + result["risk"] * 0.30
-        + (1 - result["response"].fillna(0)) * 0.18
-        + (result["dpd"] > 0).astype(float) * 0.16
-        + (result["aa_cashflow"] < 0.85).astype(float) * 0.12
-    ).clip(0.03, 0.96).round(3)
+        0.12 + result["risk"] * 0.22 + (result["aa_cashflow"] < 0.85).astype(float) * 0.08
+    ).clip(0.03, 0.62)
+    result.loc[risk_bucket.lt(4), "churn_probability"] = (
+        0.68 + risk_bucket[risk_bucket.lt(4)] * 0.04
+    )
+    result["churn_probability"] = result["churn_probability"].round(3)
     result["cross_sell_score"] = (
         result["propensity"] * 0.60
         + (result["bureau"] / 900).clip(0, 1) * 0.25
@@ -206,9 +246,6 @@ def enrich_portfolio(df: pd.DataFrame) -> pd.DataFrame:
     result["collection_priority"] = (
         result["risk"] * 0.55 + (result["dpd"] / 90).clip(0, 1) * 0.45
     ).clip(0, 1).round(3)
-    customer_number = pd.to_numeric(
-        result["customer_id"].str.extract(r"(\d+)", expand=False), errors="coerce"
-    ).fillna(0).astype(int)
     result["delinquency_events_12m"] = (
         result["delinquencies"].fillna(0).astype(int) * (1 + customer_number.mod(3))
         + ((result["delinquencies"].fillna(0) == 0) & (customer_number.mod(17) == 0)).astype(int)

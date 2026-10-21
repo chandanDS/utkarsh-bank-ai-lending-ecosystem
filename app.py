@@ -386,7 +386,7 @@ control = df[df.cohort == "control"].copy()
 if page == "Observe":
     st.subheader("Observe business performance and pain areas", icon=":material/visibility:")
     st.caption(
-        f"36-month governed analytical view · scope: {active_scope} · synthetic stressed-pilot outcomes calibrated to expose improvement opportunities."
+        f"36-month governed analytical view · scope: {active_scope} · synthetic outcomes calibrated to realistic pilot banking ranges."
     )
     observed = observe_metrics(history_df)
     current = observed["current"]
