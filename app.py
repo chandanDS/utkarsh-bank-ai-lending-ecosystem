@@ -1137,7 +1137,6 @@ elif page == "Campaign agent":
         campaign_message = campaign_meta["message"]
         if channel == "WhatsApp":
             campaign_message = "Utkarsh Bank demo: you may be interested in a suitable lending product. This is a simulated outreach; no offer is being made."
-        st.text_area("Purpose-specific campaign message", campaign_message if channel != "Voice bot" else ("Twilio-hosted trial text-to-speech sample" if twilio_trial_mode() else VOICE_SCRIPT), height=110, disabled=True)
         st.caption("This is a simulated campaign workflow. Launch links open your own messaging or phone app; you decide whether to send or dial.")
         if test_recipient in authorized_recipients:
             links = launch_links(phone=test_recipient, message=campaign_message, authorized_numbers=authorized_recipients)
@@ -1155,7 +1154,7 @@ elif page == "Campaign agent":
         if channel in {"SMS", "WhatsApp"}:
             st.markdown(f"#### Send test {channel}")
             if channel == "WhatsApp":
-                st.caption("The approved Twilio Content Template must contain the standard demo message shown above.")
+                st.caption("The approved Twilio Content Template contains the standard governed demo message.")
             missing_message_config = twilio_message_configuration_status(channel)
             if missing_message_config:
                 st.warning("Twilio messaging is unavailable. Configure " + ", ".join(missing_message_config) + ".")
