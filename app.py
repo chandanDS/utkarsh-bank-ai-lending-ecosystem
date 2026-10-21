@@ -45,7 +45,8 @@ section[data-testid="stSidebar"] > div:first-child {{
     width: 22rem !important;
 }}
 [data-testid="stMainBlockContainer"] {{
-    padding-top: 1.75rem;
+    /* Clear Streamlit's fixed toolbar on both login and authenticated views. */
+    padding-top: 2.75rem;
 }}
 section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {{
     overflow-y: auto;
@@ -214,6 +215,7 @@ section[data-testid="stSidebar"] [data-testid="stTable"] td {{
     .journey-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
 }}
 @media (max-width: 560px) {{
+    [data-testid="stMainBlockContainer"] {{ padding-top: 3.25rem; }}
     .journey-grid {{ grid-template-columns: 1fr; }}
 }}
 </style>
