@@ -161,6 +161,17 @@ section[data-testid="stSidebar"] [data-testid="stTable"] td {{
     color: #356B8F;
     text-align: center;
 }}
+.st-key-authentication_card {{
+    padding-top: 1.15rem;
+    overflow: visible;
+}}
+.st-key-authentication_card [data-testid="stImage"] {{
+    margin-top: 0.20rem;
+}}
+.st-key-authentication_card [data-testid="stImage"] img {{
+    object-fit: contain;
+    object-position: center;
+}}
 .journey-grid {{
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -258,7 +269,7 @@ def crore_display(frame):
 if st.session_state.auth_user is None:
     login_left, login_center, login_right = st.columns([1, 1.25, 1])
     with login_center:
-        with st.container(border=True):
+        with st.container(border=True, key="authentication_card"):
             st.image(OFFICIAL_LOGO_URL, width=220)
             st.subheader("AI-Powered Lending Ecosystem")
             st.caption("Secure demo access for Head Office and branch users")
