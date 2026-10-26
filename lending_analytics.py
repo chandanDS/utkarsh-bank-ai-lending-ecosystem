@@ -22,7 +22,8 @@ BRANCH_LOCATIONS = {
 
 PRODUCT_ALIASES = {
     "personal loan": "Personal Loan", "personal loans": "Personal Loan", "pl": "Personal Loan",
-    "home loan": "Home Loan", "home loans": "Home Loan", "hl": "Home Loan",
+    "home loan": "Home Loan", "home loans": "Home Loan",
+    "housing loan": "Home Loan", "housing loans": "Home Loan", "hl": "Home Loan",
     "vehicle loan": "Vehicle Loan", "vehicle loans": "Vehicle Loan", "vl": "Vehicle Loan",
     "education loan": "Education Loan", "education loans": "Education Loan", "el": "Education Loan",
     "msme loan": "MSME Loan", "msme loans": "MSME Loan", "msme": "MSME Loan",

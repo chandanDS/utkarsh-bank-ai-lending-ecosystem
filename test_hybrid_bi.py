@@ -11,9 +11,11 @@ from hybrid_bi import answer_hybrid_bi, data_mutation_reason, execute_governed_s
 class FakeCompletions:
     def __init__(self):
         self.calls = 0
+        self.requests = []
 
     def create(self, **kwargs):
         self.calls += 1
+        self.requests.append(kwargs)
         if self.calls == 1:
             payload = {
                 "intent": "product_average_risk",
@@ -117,6 +119,14 @@ class HybridBiTests(unittest.TestCase):
         self.assertGreater(result.usage["SQL generation"], 0)
         self.assertGreater(result.usage["AI insight"], 0)
         self.assertEqual(result.usage["Total"], 175)
+
+    def test_sql_planner_is_told_housing_loan_is_home_loan(self):
+        completions = FakeCompletions()
+        client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
+        answer_hybrid_bi("compare median bureau score by housing loan", self.df, client=client)
+        planner_system = completions.requests[0]["messages"][0]["content"]
+        self.assertIn('"housing loan"', planner_system)
+        self.assertIn('product=\'Home Loan\'', planner_system)
 
     def test_complex_query_without_key_fails_cleanly(self):
         result = answer_hybrid_bi("compare median bureau score by product", self.df)

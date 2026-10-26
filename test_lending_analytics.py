@@ -64,6 +64,12 @@ class ConversationalBiTests(unittest.TestCase):
         self.assertIn("FY ", answer)
         self.assertEqual(result["product"].tolist(), ["Personal Loan"])
 
+    def test_housing_loan_synonym_filters_canonical_home_loan(self):
+        answer, result, route = answer_bi("what is the housing loan portfolio", self.df)
+        self.assertEqual(route, "portfolio")
+        self.assertIn("Home Loan", answer)
+        self.assertEqual(result["product"].tolist(), ["Home Loan"])
+
     def test_total_business_uses_outstanding_not_requested_or_offer_amount(self):
         portfolio = self.df.copy()
         portfolio["requested_amount"] = [99_000_000, 88_000_000, 77_000_000]

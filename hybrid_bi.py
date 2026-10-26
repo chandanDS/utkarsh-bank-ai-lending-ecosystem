@@ -9,7 +9,7 @@ from typing import Any
 
 import pandas as pd
 
-from lending_analytics import answer_action_recommendation, answer_bi, answer_default_driver_analysis, estimate_tokens
+from lending_analytics import PRODUCT_ALIASES, answer_action_recommendation, answer_bi, answer_default_driver_analysis, estimate_tokens
 from historical_analytics import answer_historical_bi
 
 
@@ -41,6 +41,7 @@ Canonical amounts: business, portfolio and outstanding mean SUM(outstanding); re
 amount is the indicative affordability/offer ceiling and must not be used as portfolio business. Risk is stored 0..1
 and should be displayed as 100*AVG(risk) percent. Current default rate means 100*SUM(dpd>30)/COUNT(*).
 If the metric, grouping, comparison, or filter is genuinely ambiguous, ask one concise clarification and leave sql empty.
+Product terminology: "housing loan" and "housing loans" are synonyms for the canonical portfolio value "Home Loan". When a question uses either synonym, filter and group using product='Home Loan'; never invent a separate Housing Loan category. Other product filters must use the canonical values in the portfolio data.
 RBAC is already applied to portfolio; never broaden or replace its authorization scope."""
 
 COLUMN_CATALOGUE = """customer_id,name,age,income,current_emi,bureau,utilization,delinquencies,aa_cashflow,
@@ -263,13 +264,13 @@ def _latest_context_branch(history: list[dict[str, Any]] | None) -> str:
 
 
 def _latest_context_product(history: list[dict[str, Any]] | None) -> str:
-    products = ("Personal Loan", "Home Loan", "Vehicle Loan", "Education Loan", "MSME Loan", "Agri Loan")
     if not history:
         return ""
+    aliases = sorted(PRODUCT_ALIASES.items(), key=lambda item: len(item[0]), reverse=True)
     for message in reversed(history):
         text = str(message.get("content", ""))
-        for product in products:
-            if product.lower() in text.lower():
+        for alias, product in aliases:
+            if re.search(rf"\b{re.escape(alias)}\b", text, re.I):
                 return product
     return ""
 
