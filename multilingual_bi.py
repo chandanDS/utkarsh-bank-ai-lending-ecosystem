@@ -16,12 +16,17 @@ SUPPORTED_LANGUAGES = {
 TRANSCRIPTION_MODEL = "whisper-large-v3"
 
 
-def transcribe_voice_note(audio_bytes: bytes, api_key: str, language: str | None = None) -> tuple[str, str]:
+def transcribe_voice_note(
+    audio_bytes: bytes,
+    api_key: str,
+    language: str | None = None,
+    filename: str = "analyze-question.wav",
+) -> tuple[str, str]:
     """Return the transcript and detected ISO language code for a recorded question."""
     from groq import Groq
 
     request: dict[str, Any] = {
-        "file": ("analyze-question.wav", audio_bytes),
+        "file": (filename, audio_bytes),
         "model": TRANSCRIPTION_MODEL,
         "response_format": "verbose_json",
         "temperature": 0,

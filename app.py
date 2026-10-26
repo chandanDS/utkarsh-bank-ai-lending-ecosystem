@@ -1125,26 +1125,38 @@ elif page == "Analyze":
         except Exception as exc:
             st.error(f"The multilingual Analyze request could not be completed ({type(exc).__name__}). Please retry.")
 
-    audio_question = st.audio_input("Record a voice question", key="bi_voice_question")
-    if st.button("Ask with voice note", disabled=audio_question is None, key="submit_bi_voice"):
-        if not groq_api_key:
-            st.error("Voice questions need GROQ_API_KEY for multilingual transcription and translation.")
-        else:
-            try:
-                transcript, detected_language = transcribe_voice_note(
-                    audio_question.getvalue(), groq_api_key, requested_language
-                )
-                if transcript:
-                    st.caption(f"Recognized ({detected_language or 'language detected'}): {transcript}")
-                    submit_bi_question(transcript, detected_language or requested_language)
-                else:
-                    st.warning("I could not detect a question in that voice note. Please record it again or type your question.")
-            except Exception as exc:
-                st.error(f"Voice transcription failed ({type(exc).__name__}). You can still type your question below.")
-
-    question = st.chat_input("Ask a lending portfolio question")
+    question = st.chat_input(
+        "Ask, record, or attach a voice question",
+        accept_audio=True,
+        accept_file=True,
+        file_type=["wav", "mp3", "m4a", "ogg", "webm", "mp4", "mpeg", "mpga", "flac"],
+        audio_sample_rate=None,
+        key="bi_question_input",
+    )
     if question:
-        submit_bi_question(question, requested_language)
+        typed_question = question.text.strip()
+        voice_note = question.audio
+        if voice_note is None and question.files:
+            voice_note = question.files[0]
+        if typed_question and voice_note:
+            st.warning("Please send a typed question or a voice note, one at a time.")
+        elif voice_note:
+            if not groq_api_key:
+                st.error("Voice questions need GROQ_API_KEY for multilingual transcription and translation.")
+            else:
+                try:
+                    with st.spinner("Transcribing your voice question…"):
+                        transcript, detected_language = transcribe_voice_note(
+                            voice_note.getvalue(), groq_api_key, requested_language, voice_note.name
+                        )
+                    if transcript:
+                        submit_bi_question(transcript, detected_language or requested_language)
+                    else:
+                        st.warning("I could not detect a question in that voice note. Please record it again or type your question.")
+                except Exception as exc:
+                    st.error(f"Voice transcription failed ({type(exc).__name__}). You can still type your question below.")
+        elif typed_question:
+            submit_bi_question(typed_question, requested_language)
 
 elif page == "Campaign agent":
     st.subheader("AI/ML-powered Campaign Agent", icon=":material/campaign:")
