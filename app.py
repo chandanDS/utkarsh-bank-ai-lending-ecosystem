@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import streamlit as st
 import pandas as pd
 import altair as alt
@@ -10,6 +11,7 @@ from engine import authenticate_user, init_db, rows, scored_customers, score, ev
 from campaign_links import TEST_MESSAGE, VOICE_SCRIPT, launch_links
 from lending_analytics import AI_COLUMNS, CAMPAIGN_AUDIENCES, campaign_audience, classify_next_best_action, enrich_portfolio, executive_impact_report, lead_conversion_analytics
 from hybrid_bi import DEFAULT_INSIGHT_MODEL, DEFAULT_MODEL, answer_hybrid_bi, zero_usage
+from multilingual_bi import SUPPORTED_LANGUAGES, transcribe_voice_note, translate_answer, translate_question_to_english
 from historical_analytics import build_historical_portfolio, observe_metrics
 from twilio_voice import authorized_test_numbers, call_window_open, configuration_status as twilio_configuration_status, normalize_indian_mobile, place_test_call as place_twilio_test_call, trial_mode as twilio_trial_mode
 from twilio_messaging import configuration_status as twilio_message_configuration_status, send_test_message
@@ -1011,7 +1013,38 @@ elif page == "Analyze":
         with st.chat_message(message["role"]):
             if message["role"] == "user":
                 latest_user_question = message["content"]
-            st.markdown(message["content"])
+            st.markdown(message.get("display_content", message["content"]))
+            if message["role"] == "assistant" and message.get("spoken_content"):
+                spoken_text = json.dumps(message["spoken_content"], ensure_ascii=False).replace("<", "\\u003c")
+                locale = message.get("spoken_locale", "en-IN")
+                language_name = message.get("spoken_language", "English")
+                st.components.v1.html(
+                    f"""<div style="font:14px sans-serif">
+                    <button id="speak" style="padding:7px 12px;border-radius:8px;border:1px solid #bbb;cursor:pointer">
+                    🔊 Read aloud in {language_name}</button>
+                    <button id="stop" style="padding:7px 12px;border-radius:8px;border:1px solid #bbb;cursor:pointer">■ Stop</button>
+                    <span id="voice-status" style="margin-left:8px;color:#555"></span>
+                    <script>
+                    const text = {spoken_text};
+                    const locale = {json.dumps(locale)};
+                    document.getElementById('speak').onclick = () => {{
+                      window.speechSynthesis.cancel();
+                      const utterance = new SpeechSynthesisUtterance(text);
+                      utterance.lang = locale;
+                      const prefix = locale.toLowerCase().split('-')[0];
+                      const voice = window.speechSynthesis.getVoices().find(v => v.lang.toLowerCase().startsWith(prefix));
+                      if (!voice && prefix !== 'en') {{
+                        document.getElementById('voice-status').textContent = 'Install a ' + locale + ' speech voice on this device to play this translation.';
+                        return;
+                      }}
+                      document.getElementById('voice-status').textContent = '';
+                      if (voice) utterance.voice = voice;
+                      window.speechSynthesis.speak(utterance);
+                    }};
+                    document.getElementById('stop').onclick = () => window.speechSynthesis.cancel();
+                    </script></div>""",
+                    height=50,
+                )
             if message.get("route"):
                 if message["route"].startswith("historical:"):
                     route_label = "Governed historical analytics path"
@@ -1026,35 +1059,92 @@ elif page == "Analyze":
             message_data = pd.DataFrame(message.get("data", []))
             if should_display_result_table(latest_user_question, message_data):
                 st.dataframe(crore_display(message_data), hide_index=True, width="stretch")
+    language_options = ["Auto-detect"] + list(SUPPORTED_LANGUAGES)
+    selected_language = st.selectbox(
+        "Question language",
+        language_options,
+        key="bi_question_language",
+        help="English, Hindi, Bengali and Kannada are supported. Voice notes are detected automatically when Auto-detect is selected.",
+    )
+    requested_language = SUPPORTED_LANGUAGES.get(selected_language, {}).get("code")
+
+    def submit_bi_question(question_text: str, known_language: str | None = None) -> None:
+        original_question = question_text.strip()
+        if not original_question:
+            st.warning("I could not detect a question in that voice note. Please record it again or type your question.")
+            return
+        try:
+            english_question, language_code = translate_question_to_english(
+                original_question, groq_api_key or "", groq_insight_model, known_language
+            )
+            if language_code not in {values["code"] for values in SUPPORTED_LANGUAGES.values()}:
+                language_code = "en"
+            response = answer_hybrid_bi(
+                english_question,
+                df,
+                st.session_state.bi_messages,
+                historical_df=history_df,
+                api_key=groq_api_key or None,
+                model=groq_model,
+                insight_temperature=insight_temperature,
+                insight_model=groq_insight_model,
+            )
+            spoken_content = ""
+            translation_note = ""
+            try:
+                spoken_content = translate_answer(response.answer, groq_api_key or "", groq_insight_model, language_code)
+            except Exception:
+                translation_note = "The English result is available, but its spoken translation could not be prepared."
+            spoken_language, spoken_locale = next(
+                ((name, values["locale"]) for name, values in SUPPORTED_LANGUAGES.items() if values["code"] == language_code),
+                ("English", "en-IN"),
+            )
+            display = response.data.head(200)
+            show_table = should_display_result_table(english_question, display)
+            user_label = original_question
+            if original_question != english_question:
+                user_label = f"{original_question}\n\n*English query:* {english_question}"
+            st.session_state.bi_messages.extend([
+                {"role": "user", "content": english_question, "display_content": user_label},
+                {
+                    "role": "assistant",
+                    "content": response.answer + (f"\n\n_{translation_note}_" if translation_note else ""),
+                    "spoken_content": spoken_content,
+                    "spoken_language": spoken_language,
+                    "spoken_locale": spoken_locale,
+                    "data": display.to_dict("records"),
+                    "show_table": show_table,
+                    "route": response.route,
+                    "sql": response.sql,
+                    "model": response.model,
+                },
+            ])
+            st.session_state.token_usage = response.usage
+            event("PORTFOLIO", "conversational_bi", response.route, f"question={original_question[:300]}; rows={len(response.data)}", "bi_assistant")
+            st.rerun()
+        except Exception as exc:
+            st.error(f"The multilingual Analyze request could not be completed ({type(exc).__name__}). Please retry.")
+
+    audio_question = st.audio_input("Record a voice question", key="bi_voice_question")
+    if st.button("Ask with voice note", disabled=audio_question is None, key="submit_bi_voice"):
+        if not groq_api_key:
+            st.error("Voice questions need GROQ_API_KEY for multilingual transcription and translation.")
+        else:
+            try:
+                transcript, detected_language = transcribe_voice_note(
+                    audio_question.getvalue(), groq_api_key, requested_language
+                )
+                if transcript:
+                    st.caption(f"Recognized ({detected_language or 'language detected'}): {transcript}")
+                    submit_bi_question(transcript, detected_language or requested_language)
+                else:
+                    st.warning("I could not detect a question in that voice note. Please record it again or type your question.")
+            except Exception as exc:
+                st.error(f"Voice transcription failed ({type(exc).__name__}). You can still type your question below.")
+
     question = st.chat_input("Ask a lending portfolio question")
     if question:
-        response = answer_hybrid_bi(
-            question,
-            df,
-            st.session_state.bi_messages,
-            historical_df=history_df,
-            api_key=groq_api_key or None,
-            model=groq_model,
-            insight_temperature=insight_temperature,
-            insight_model=groq_insight_model,
-        )
-        display = response.data.head(200)
-        show_table = should_display_result_table(question, display)
-        st.session_state.bi_messages.extend([
-            {"role": "user", "content": question},
-            {
-                "role": "assistant",
-                "content": response.answer,
-                "data": display.to_dict("records"),
-                "show_table": show_table,
-                "route": response.route,
-                "sql": response.sql,
-                "model": response.model,
-            },
-        ])
-        st.session_state.token_usage = response.usage
-        event("PORTFOLIO", "conversational_bi", response.route, f"question={question[:300]}; rows={len(response.data)}", "bi_assistant")
-        st.rerun()
+        submit_bi_question(question, requested_language)
 
 elif page == "Campaign agent":
     st.subheader("AI/ML-powered Campaign Agent", icon=":material/campaign:")

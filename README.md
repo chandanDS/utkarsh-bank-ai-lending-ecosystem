@@ -64,3 +64,9 @@ Run the app locally:
 Open **Campaign agent → Voice bot**, confirm authorization, and click **Place Twilio voice bot call**. The destination is fixed to `8050702529`. Trial accounts use Twilio's hosted text-to-speech sample. After upgrading the account, set `TWILIO_TRIAL_MODE = false` in `secrets.toml` to use the inline custom campaign script. Neither mode records speech or carries out a two-way conversation. The request ID is logged; check Twilio's call logs for delivery and duration.
 
 Twilio's India guidelines require calls to Indian destinations to originate from an international caller number. Trial accounts can call only verified recipients and use limited call request parameters.
+
+## Multilingual Analyze voice questions
+
+The **Analyze** page accepts typed questions and recorded voice questions in English, Hindi, Bengali, and Kannada. Voice notes are transcribed with Groq Whisper; the detected question is translated into English before it enters the existing governed analytics and SQL path. Results and generated SQL remain in English. A translated version of the answer can be read aloud in the question language using the browser's installed speech voice.
+
+Set `GROQ_API_KEY` (or add it to Streamlit secrets) to enable voice transcription and multilingual translation. The browser may ask for microphone permission when recording. Speech playback uses the browser's speech synthesis voices; the available voice and pronunciation depend on the user's device and installed language packs.
