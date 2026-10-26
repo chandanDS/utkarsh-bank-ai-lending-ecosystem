@@ -38,6 +38,15 @@ class ConversationalBiTests(unittest.TestCase):
         self.assertEqual(int(result.iloc[0]["high_default_risk_customers"]), 2)
         self.assertIn("high default-risk", answer)
 
+    def test_highest_branch_default_rate_uses_current_dpd(self):
+        answer, result, route = answer_bi("which branch has the highest default rate", self.df)
+        self.assertEqual(route, "branch_default_rate")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result.iloc[0]["branch_code"], "BR001")
+        self.assertEqual(result.iloc[0]["default_rate_pct"], 50.0)
+        self.assertIn("50.00%", answer)
+        self.assertIn("1 of 2 accounts with DPD > 30", answer)
+
     def test_highest_delinquency(self):
         self.assert_branch_answer("which branch has highest delinquency", "BR001", "branch_delinquency")
 

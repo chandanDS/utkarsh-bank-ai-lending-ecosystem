@@ -991,20 +991,6 @@ elif page == "Analyze":
         explain_a.markdown("**Compare**  \nMoM, QoQ and YoY movement across portfolio and operational KPIs.")
         explain_b.markdown("**Drill down**  \nIdentify the affected product, branch, region or customer segment.")
         explain_c.markdown("**Connect to action**  \nRecommend a relevant AI/ML output only when the metric is deteriorating.")
-    with st.expander("Analyze module test cases", icon=":material/fact_check:"):
-        analyze_test_cases = pd.DataFrame([
-            {"Test question": "Show portfolio growth compared with last year", "Expected behavior": "Defaults to portfolio amount and returns YoY growth.", "Expected path": "Historical analytics"},
-            {"Test question": "What are the drivers for this portfolio growth?", "Expected behavior": "Returns leading product and branch contribution in ₹ Cr.", "Expected path": "Historical analytics"},
-            {"Test question": "Show new accounts added MoM by product", "Expected behavior": "Compares monthly account additions across products.", "Expected path": "Historical analytics"},
-            {"Test question": "Which branch has the highest increase in default rate YoY?", "Expected behavior": "Returns one branch and recommends Default & early warning/Credit decisioning.", "Expected path": "Historical analytics"},
-            {"Test question": "Compare lead conversion QoQ", "Expected behavior": "Calculates quarterly conversion movement and links adverse movement to Propensity/Credit decisioning.", "Expected path": "Historical analytics"},
-            {"Test question": "Show collection efficiency trend", "Expected behavior": "Calculates collection-efficiency movement from amount due and received.", "Expected path": "Historical analytics"},
-            {"Test question": "Which product has the fastest portfolio growth?", "Expected behavior": "Ranks products by amount growth.", "Expected path": "Historical analytics"},
-            {"Test question": "Which branch has the highest number of defaulters?", "Expected behavior": "Returns one RBAC-scoped branch, not an unrestricted customer list.", "Expected path": "Deterministic fast path"},
-            {"Test question": "Compare average ticket size and risk by product", "Expected behavior": "Builds and executes governed read-only SQL.", "Expected path": "Groq dynamic SQL"},
-            {"Test question": "Compare performance", "Expected behavior": "Asks for the missing metric or comparison scope.", "Expected path": "Clarification"},
-        ])
-        st.dataframe(analyze_test_cases, hide_index=True, width="stretch", height=388)
     with st.container(border=True):
         st.markdown("**Try:** Personal Loan growth versus last year · new accounts MoM by product · default-rate YoY by branch · lead conversion QoQ · region with declining portfolio · collection efficiency trend")
     visible_messages = st.session_state.bi_messages[-6:]

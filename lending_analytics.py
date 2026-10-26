@@ -553,7 +553,18 @@ def _branch_ranking(question: str, scoped: pd.DataFrame) -> tuple[str, pd.DataFr
     grouped = scoped.groupby(["branch_code", "city"], as_index=False)
     metric_label: str
     route: str
-    if any(term in question for term in ("defaulter", "defaulted")) and "risk" not in question:
+    if "default rate" in question:
+        result = grouped.agg(
+            accounts=("customer_id", "count"),
+            defaulters_dpd_gt_30=("dpd", lambda values: int((values > 30).sum())),
+        )
+        result["default_rate_pct"] = (
+            100 * result["defaulters_dpd_gt_30"] / result["accounts"].replace(0, pd.NA)
+        ).fillna(0).round(2)
+        metric = "default_rate_pct"
+        metric_label = "current default rate"
+        route = "branch_default_rate"
+    elif any(term in question for term in ("defaulter", "defaulted")) and "risk" not in question:
         result = grouped.agg(
             defaulters=("dpd", lambda values: int((values > 30).sum())),
             average_dpd=("dpd", lambda values: float(values[values > 30].mean()) if (values > 30).any() else 0.0),
@@ -643,7 +654,14 @@ def _branch_ranking(question: str, scoped: pd.DataFrame) -> tuple[str, pd.DataFr
     else:
         rendered_value = f"{int(value):,}"
     qualifier = "lowest" if ascending else "highest"
-    if metric == "outstanding" or metric.endswith("_pct"):
+    if metric == "default_rate_pct":
+        defaults = int(row["defaulters_dpd_gt_30"])
+        accounts = int(row["accounts"])
+        answer = (
+            f"{row.branch_code} ({row.city}) has the {qualifier} {metric_label}: {rendered_value} "
+            f"({defaults:,} of {accounts:,} accounts with DPD > 30)."
+        )
+    elif metric == "outstanding" or metric.endswith("_pct"):
         answer = f"{row.branch_code} ({row.city}) has the {qualifier} {metric_label}: {rendered_value}."
     else:
         answer = f"{row.branch_code} ({row.city}) has the {qualifier} number of {metric_label}: {rendered_value}."
